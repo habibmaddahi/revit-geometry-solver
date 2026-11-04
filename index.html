@@ -1,0 +1,1763 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Revit Geometry Solver</title>
+<meta name="description" content="Lock two values you know and get Revit family formulas for the rest: arcs, right triangles, arrays, stairs, polygons and modules.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23f5f5f1' stroke='%23121412' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23121412' stroke-width='1.5'/%3E%3Cpath d='M13 2h6l-3 4z' fill='%232342c8'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Layout: one drawing sheet. Title block on top, sheet tabs, the view (dial + drawing) beside a Family Types style schedule. */
+  --paper: #f5f5f1;
+  --ink: #121412;
+  --ink-2: #585d59;
+  --hair: #c6c9c2;
+  --fill: #e9eae4;
+  --lock: #2342c8;
+  --lock-ink: #ffffff;
+  --ok: #1e6b3c;
+  --warn: #b4560a;
+  --font-body: "Archivo", "Arial Narrow", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #131513; --ink: #e6e7e2; --ink-2: #9ca29d; --hair: #3a3e3a; --fill: #1d201d;
+    --lock: #8ea2ff; --lock-ink: #0b1030; --ok: #6fd39a; --warn: #f0a35a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #131513; --ink: #e6e7e2; --ink-2: #9ca29d; --hair: #3a3e3a; --fill: #1d201d;
+  --lock: #8ea2ff; --lock-ink: #0b1030; --ok: #6fd39a; --warn: #f0a35a;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--paper); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+button { font-family: inherit; color: inherit; }
+button:focus-visible, input:focus-visible, svg:focus-visible { outline: 2px solid var(--lock); outline-offset: 2px; }
+
+/* Sheet frame: double border like a plotted sheet */
+.sheet { margin: 8px; border: 1.5px solid var(--ink); outline: 1px solid var(--ink); outline-offset: 3px; max-width: 1240px; }
+@media (min-width: 700px) { .sheet { margin: 18px auto; width: calc(100% - 36px); } }
+
+/* Title block */
+.tb { display: grid; grid-template-columns: 1fr; border-bottom: 1.5px solid var(--ink); }
+.tb > div { padding: 12px 14px; min-width: 0; }
+.tb .units-cell { border-top: 1px solid var(--ink); }
+@media (min-width: 700px) {
+  .tb { grid-template-columns: 1fr auto; }
+  .tb .units-cell { border-top: 0; border-left: 1px solid var(--ink); }
+}
+.label { display: block; font: 600 9.5px/1 var(--font-body); letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-2); margin-bottom: 7px; }
+h1 { font: 800 clamp(24px, 4.6vw, 38px)/0.95 var(--font-body); font-stretch: 70%; letter-spacing: 0.005em; text-transform: uppercase; margin: 0; text-wrap: balance; }
+.tb .sub { margin: 6px 0 0; color: var(--ink-2); font-size: 13.5px; }
+
+.seg { display: inline-flex; border: 1px solid var(--ink); }
+.seg button { appearance: none; border: 0; border-left: 1px solid var(--ink); background: transparent; padding: 7px 11px; font: 600 12.5px/1 var(--font-mono); cursor: pointer; }
+.seg button:first-child { border-left: 0; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+
+/* Sheet tabs */
+.sheets { display: flex; overflow-x: auto; border-bottom: 1.5px solid var(--ink); scrollbar-width: none; }
+.sheets::-webkit-scrollbar { display: none; }
+.sheets button { appearance: none; flex: none; border: 0; border-right: 1px solid var(--hair); background: transparent; padding: 9px 16px 10px 14px; text-align: left; cursor: pointer; color: var(--ink-2); position: relative; }
+.sheets button:hover { color: var(--ink); }
+.sheets .sn { display: block; font: 500 10.5px/1.2 var(--font-mono); }
+.sheets .st { display: block; font: 700 14.5px/1.2 var(--font-body); font-stretch: 82%; text-transform: uppercase; letter-spacing: 0.03em; margin-top: 2px; }
+.sheets button[aria-selected="true"] { color: var(--ink); background: var(--fill); }
+.sheets button[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1.5px; height: 3.5px; background: var(--ink); }
+
+/* Main layout */
+.layout { display: grid; }
+.view { padding: 18px 14px 20px; display: flex; flex-direction: column; align-items: center; gap: 12px; border-bottom: 1.5px solid var(--ink); }
+.tape { padding: 18px 14px 22px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+@media (min-width: 960px) {
+  .layout { grid-template-columns: minmax(380px, 460px) minmax(0, 1fr); }
+  .view { border-bottom: 0; border-right: 1px solid var(--ink); padding: 22px 22px 26px; }
+  .view-inner { position: sticky; top: 16px; }
+  .tape { padding: 22px 22px 26px; }
+}
+.view-inner { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; }
+
+/* Dial */
+#dial { width: 100%; max-width: 430px; height: auto; display: block; user-select: none; -webkit-user-select: none; border-radius: 50%; }
+.ring-band { fill: var(--fill); stroke: var(--ink); stroke-width: 1.2; }
+.ring-hit { cursor: grab; }
+#dial.dragging .ring-hit { cursor: grabbing; }
+.rot { transform-box: view-box; transform-origin: 160px 160px; transition: transform 0.55s cubic-bezier(0.2, 0.85, 0.25, 1); }
+.rtick { stroke: var(--ink); stroke-width: 0.6; }
+.rtick.major { stroke-width: 1.1; }
+.rlabel { font: 650 12.5px var(--font-body); font-stretch: 80%; letter-spacing: 0.03em; fill: var(--ink-2); pointer-events: none; }
+.rlabel.active { fill: var(--ink); font-weight: 800; }
+.lbl-hit { fill: transparent; cursor: pointer; }
+.window { fill: var(--paper); stroke: var(--ink); stroke-width: 1.3; }
+.index { fill: var(--ink); }
+.face { fill: var(--paper); stroke: var(--ink); stroke-width: 1.2; }
+
+.geo { fill: none; stroke: var(--ink); stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+.geo.main { stroke-width: 2.4; }
+.geo.dim { stroke-width: 0.9; }
+.geo.ghost { stroke: var(--ink-2); stroke-width: 0.8; stroke-dasharray: 2 4; }
+.geo.aux { stroke-dasharray: 5 3; }
+.geo.is-known { stroke: var(--lock); }
+.dot { fill: var(--ink); }
+.panel-end { fill: var(--ink); }
+.panel-mid { fill: var(--ink-2); }
+.course { fill: var(--paper); stroke: var(--ink); stroke-width: 0.8; }
+.course-solid { fill: var(--fill); stroke: var(--ink); stroke-width: 0.8; }
+.tag-hit { fill: transparent; }
+.tag-box { fill: var(--paper); stroke: var(--ink); stroke-width: 1; }
+.tag text { font: 700 11.5px var(--font-mono); fill: var(--ink); dominant-baseline: central; }
+.lk-body { fill: var(--ink); }
+.lk-shackle { fill: none; stroke: var(--ink); stroke-width: 1.2; }
+.tag.on .tag-box { fill: var(--lock); stroke: var(--lock); }
+.tag.on text, .tag.on .lk-body { fill: var(--lock-ink); }
+.tag.on .lk-shackle { stroke: var(--lock-ink); }
+.tag.click { cursor: pointer; }
+.tag.click:hover .tag-box { stroke-width: 2; }
+.faded { opacity: 0.35; }
+
+/* Revit-style view title */
+.vt { display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%; max-width: 430px; }
+.vt svg.bubble { display: block; }
+.bubble circle, .bubble path { fill: none; stroke: var(--ink); stroke-width: 1.2; }
+.bubble text { font: 600 9px var(--font-mono); fill: var(--ink); text-anchor: middle; }
+.vt-name { font: 800 24px/1.05 var(--font-body); font-stretch: 76%; letter-spacing: 0.01em; padding-bottom: 4px; border-bottom: 2.5px solid var(--ink); overflow-wrap: anywhere; }
+.vt-meta { font: 500 11px/1.4 var(--font-mono); color: var(--ink-2); margin-top: 5px; text-transform: uppercase; }
+.vt-nav { display: flex; gap: 6px; }
+.sq { appearance: none; width: 38px; height: 38px; border: 1px solid var(--ink); background: var(--paper); display: grid; place-items: center; cursor: pointer; }
+.sq:hover { background: var(--fill); }
+.hint { margin: 0; color: var(--ink-2); font-size: 13px; text-align: center; max-width: 44ch; }
+
+/* Schedule (Family Types style) */
+.sched { border: 1.5px solid var(--ink); }
+.sched-title { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 10px 9px 12px; border-bottom: 1.5px solid var(--ink); }
+.sched-title h2 { font: 800 15px/1.2 var(--font-body); font-stretch: 80%; letter-spacing: 0.06em; text-transform: uppercase; margin: 0; }
+.txtbtn { appearance: none; border: 1px solid var(--ink); background: var(--paper); padding: 7px 10px; font: 700 10.5px/1 var(--font-body); letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer; white-space: nowrap; }
+.txtbtn:hover { background: var(--fill); }
+.txtbtn.done { background: var(--ink); color: var(--paper); }
+.sched-head { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; background: var(--fill); border-bottom: 1px solid var(--ink); font: 600 10px/1 var(--font-body); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-2); }
+.sched-head span { padding: 8px 10px; }
+.pgroup { padding: 6px 10px; font: 700 10.5px/1.3 var(--font-body); letter-spacing: 0.14em; text-transform: uppercase; background: var(--fill); border-top: 1px solid var(--ink); border-bottom: 1px solid var(--hair); }
+.pgroup:first-child { border-top: 0; }
+.prow { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; grid-template-areas: "lock name val" ". form form"; border-top: 1px solid var(--hair); }
+.pgroup + .prow { border-top: 0; }
+.c-lock { grid-area: lock; padding: 9px 0 0 8px; }
+.c-name { grid-area: name; padding: 8px 8px 8px 2px; min-width: 0; }
+.c-val { grid-area: val; padding: 8px 10px; text-align: right; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; }
+.pform { grid-area: form; margin: 0 10px 10px 2px; display: flex; align-items: stretch; border: 1px solid var(--hair); background: var(--fill); min-width: 0; }
+.pform .eq { padding: 7px 0 7px 9px; color: var(--ink-2); font: 500 13.5px/1.5 var(--font-mono); }
+.pform code { flex: 1; min-width: 0; padding: 7px 10px 7px 7px; font: 400 13.5px/1.5 var(--font-mono); overflow-wrap: anywhere; }
+.pform .muted { padding: 7px 10px; color: var(--ink-2); font-size: 13px; }
+.copy { appearance: none; border: 0; border-left: 1px solid var(--hair); background: transparent; padding: 0 12px; font: 700 10.5px/1 var(--font-body); letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer; }
+.copy:hover { background: var(--paper); }
+.copy.done { background: var(--ink); color: var(--paper); }
+.v-known { color: var(--lock); font-weight: 700; }
+.v-solved { font-weight: 700; }
+
+.lk { appearance: none; width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid var(--hair); background: transparent; color: var(--ink-2); cursor: pointer; padding: 0; }
+.lk:hover { border-color: var(--ink); color: var(--ink); }
+.lk[aria-pressed="true"] { background: var(--lock); border-color: var(--lock); color: var(--lock-ink); }
+.lk.fixed { background: var(--fill); border-color: var(--hair); color: var(--ink-2); cursor: default; }
+.lk svg { display: block; }
+
+.pname { display: block; width: 100%; max-width: 16ch; border: 0; border-bottom: 1px dashed var(--hair); background: transparent; color: var(--ink); font: 700 16px/1.3 var(--font-mono); padding: 1px 0; }
+.pname:hover { border-bottom-color: var(--ink-2); }
+.pname:focus-visible { outline: none; border-bottom: 1.5px solid var(--lock); }
+.pdesc { display: block; font-size: 12.5px; color: var(--ink-2); margin-top: 2px; }
+.dname { display: block; font: 600 14px/1.3 var(--font-body); }
+.pout { font: 700 16.5px/1.25 var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pout.pending { color: var(--ink-2); font-weight: 500; }
+.psec { font: 400 11.5px/1.3 var(--font-mono); color: var(--ink-2); white-space: nowrap; }
+.inwrap { display: flex; align-items: stretch; border: 1px solid var(--hair); border-bottom: 2px solid var(--lock); background: var(--fill); }
+.pval { width: 9.5em; border: 0; background: transparent; color: var(--ink); font: 500 16px/1.3 var(--font-mono); padding: 6px 8px; text-align: right; }
+.pval:focus-visible { outline: none; }
+.inwrap:focus-within { border-color: var(--lock); }
+.unit { display: grid; place-items: center; padding: 0 8px 0 0; color: var(--ink-2); font: 500 12px var(--font-mono); }
+.unit:empty { display: none; }
+
+.opts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 13.5px; }
+.opts[hidden] { display: none; }
+.opts .label { margin: 0; }
+.chip { appearance: none; border: 1px solid var(--ink); background: var(--paper); padding: 7px 10px; font: 600 12.5px/1 var(--font-body); cursor: pointer; }
+.chip:hover { background: var(--fill); }
+
+/* Revision cloud for problems */
+.cloud { display: flex; gap: 10px; align-items: flex-start; padding: 4px 6px; font-size: 14px; border: 10px solid transparent;
+  border-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3E%3Cpath d='M5 5A5 5 0 0 1 15 5A5 5 0 0 1 25 5A5 5 0 0 1 25 15A5 5 0 0 1 25 25A5 5 0 0 1 15 25A5 5 0 0 1 5 25A5 5 0 0 1 5 15A5 5 0 0 1 5 5Z' fill='none' stroke='%23b4560a' stroke-width='1.5'/%3E%3C/svg%3E") 10 round; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .cloud { border-image-source: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3E%3Cpath d='M5 5A5 5 0 0 1 15 5A5 5 0 0 1 25 5A5 5 0 0 1 25 15A5 5 0 0 1 25 25A5 5 0 0 1 15 25A5 5 0 0 1 5 25A5 5 0 0 1 5 15A5 5 0 0 1 5 5Z' fill='none' stroke='%23f0a35a' stroke-width='1.5'/%3E%3C/svg%3E"); } }
+:root[data-theme="dark"] .cloud { border-image-source: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3E%3Cpath d='M5 5A5 5 0 0 1 15 5A5 5 0 0 1 25 5A5 5 0 0 1 25 15A5 5 0 0 1 25 25A5 5 0 0 1 15 25A5 5 0 0 1 5 25A5 5 0 0 1 5 15A5 5 0 0 1 5 5Z' fill='none' stroke='%23f0a35a' stroke-width='1.5'/%3E%3C/svg%3E"); }
+.cloud[hidden], .pending-note[hidden] { display: none; }
+.cloud svg { flex: none; color: var(--warn); margin-top: 1px; }
+.pending-note { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border: 1px dashed var(--ink-2); font-size: 14px; }
+
+/* Code check + notes */
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+caption { text-align: left; font: 800 13px/1.2 var(--font-body); font-stretch: 80%; letter-spacing: 0.08em; text-transform: uppercase; padding: 0 0 8px; }
+th { text-align: left; font: 600 10px/1 var(--font-body); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-2); padding: 8px 8px; background: var(--fill); border: 1px solid var(--ink); }
+td { padding: 8px; border: 1px solid var(--hair); vertical-align: top; }
+td code { font: 400 13px/1.5 var(--font-mono); }
+.res { font: 700 11px/1 var(--font-mono); letter-spacing: 0.06em; }
+.res.ok { color: var(--ok); }
+.res.no { color: var(--warn); }
+.checks[hidden] { display: none; }
+.notes-title, .band-title { font: 800 13px/1.2 var(--font-body); font-stretch: 80%; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 8px; padding-bottom: 5px; border-bottom: 1.5px solid var(--ink); display: inline-block; }
+.notes { margin: 0; padding: 0; list-style: none; counter-reset: n; display: grid; gap: 6px; font-size: 13.5px; color: var(--ink-2); }
+.notes li { counter-increment: n; display: grid; grid-template-columns: 22px 1fr; }
+.notes li::before { content: counter(n) "."; font: 600 12px/1.6 var(--font-mono); color: var(--ink); }
+.notes b { color: var(--ink); }
+.notes code { font-family: var(--font-mono); font-size: 12.5px; color: var(--ink); }
+
+/* Lower bands */
+.band { border-top: 1.5px solid var(--ink); padding: 18px 14px 22px; }
+@media (min-width: 960px) { .band { padding: 22px; } }
+.band .lede { color: var(--ink-2); font-size: 13.5px; margin: 0 0 14px; }
+.lib { list-style: none; margin: 0; padding: 0; display: grid; border: 1px solid var(--ink); }
+@media (min-width: 820px) { .lib { grid-template-columns: 1fr 1fr; } .lib li:nth-child(odd) { border-right: 1px solid var(--hair); } }
+.lib li { padding: 10px 12px 12px; border-top: 1px solid var(--hair); display: grid; gap: 6px; align-content: start; }
+.lib li:first-child { border-top: 0; }
+@media (min-width: 820px) { .lib li:nth-child(2) { border-top: 0; } }
+.lib .ptitle { font: 700 12px/1.3 var(--font-body); letter-spacing: 0.08em; text-transform: uppercase; }
+.lib .pform { margin: 0; }
+.lib .pnote { color: var(--ink-2); font-size: 13px; }
+.ref-grid { display: grid; gap: 18px; }
+@media (min-width: 820px) { .ref-grid { grid-template-columns: 1fr 1fr; } }
+.table-scroll { overflow-x: auto; }
+td code.nw { white-space: nowrap; }
+footer { border-top: 1.5px solid var(--ink); display: grid; grid-template-columns: 1fr; font-size: 12px; color: var(--ink-2); }
+footer div { padding: 10px 14px; }
+@media (min-width: 700px) { footer { grid-template-columns: 1fr auto; } footer div + div { border-left: 1px solid var(--ink); } }
+
+@media (prefers-reduced-motion: reduce) { .rot { transition: none; } }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <header class="tb">
+    <div>
+      <span class="label">Project</span>
+      <h1>Revit Geometry Solver</h1>
+      <p class="sub">Lock two values you know. Every other value gets a Revit formula.</p>
+    </div>
+    <div class="units-cell">
+      <span class="label">Units</span>
+      <div class="seg" id="units" role="group" aria-label="Length units">
+        <button type="button" data-unit="ftin">ft-in</button><button type="button" data-unit="in">in</button><button type="button" data-unit="ft">ft</button><button type="button" data-unit="mm">mm</button><button type="button" data-unit="m">m</button>
+      </div>
+    </div>
+  </header>
+  <nav class="sheets" id="tabs" role="tablist" aria-label="Sheets"></nav>
+
+  <main class="layout">
+    <section class="view" aria-label="Drawing">
+      <div class="view-inner">
+        <svg id="dial" viewBox="0 0 320 320" tabindex="0" role="group" aria-label="Known values ring. Use the left and right arrow keys to turn it.">
+          <defs><clipPath id="faceClip"><circle cx="160" cy="160" r="123"/></clipPath></defs>
+          <circle class="ring-band ring-hit" cx="160" cy="160" r="158"/>
+          <g id="ringTicks" class="rot ring-hit"></g>
+          <path class="window" d="M113.81,8.9 A158,158 0 0 1 206.19,8.9 L196.25,41.42 A124,124 0 0 0 123.75,41.42 Z"/>
+          <path class="index" d="M154 0 H166 L160 7 Z"/>
+          <g id="ringLabels" class="rot ring-hit"></g>
+          <circle class="face" cx="160" cy="160" r="124"/>
+          <g id="diagram" clip-path="url(#faceClip)"></g>
+        </svg>
+        <div class="vt">
+          <svg class="bubble" width="46" height="46" viewBox="0 0 46 46" aria-hidden="true">
+            <circle cx="23" cy="23" r="21"/><path d="M2 23 H44"/>
+            <text id="vtNum" x="23" y="17">1</text><text id="vtSheet" x="23" y="35">A-101</text>
+          </svg>
+          <div>
+            <div class="vt-name" id="vtName">Known R &amp; θ</div>
+            <div class="vt-meta" id="vtMeta">Radius &amp; included angle · Scale: NTS</div>
+          </div>
+          <div class="vt-nav">
+            <button class="sq" id="prev" type="button" aria-label="Previous pair"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M9 2 4 7l5 5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
+            <button class="sq" id="next" type="button" aria-label="Next pair"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M5 2l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
+          </div>
+        </div>
+        <p class="hint">Click two tags in the drawing to lock them, or turn the ring.</p>
+      </div>
+    </section>
+
+    <section class="tape">
+      <div class="sched">
+        <div class="sched-title"><h2 id="schedTitle">&lt;Arc Parameters&gt;</h2><button class="txtbtn" type="button" id="copyAll">Copy all formulas</button></div>
+        <div class="sched-head"><span>Lock</span><span>Parameter</span><span>Value</span></div>
+        <div id="schedBody"></div>
+      </div>
+      <div class="opts" id="altRow" hidden>
+        <span class="label">Two arcs fit</span>
+        <div class="seg" role="group" aria-label="Which arc"><button type="button" data-alt="0">Smaller θ</button><button type="button" data-alt="1">Larger θ</button></div>
+      </div>
+      <div class="opts" id="presets" hidden></div>
+      <div class="cloud" id="msg" role="alert" hidden>
+        <svg width="20" height="18" viewBox="0 0 20 18" aria-hidden="true"><path d="M10 1.5 18.5 16.5H1.5Z" fill="none" stroke="currentColor" stroke-width="1.4"/><text x="10" y="13.6" text-anchor="middle" font-size="8.5" font-family="monospace" font-weight="700" fill="currentColor">1</text></svg>
+        <span id="msgText"></span>
+      </div>
+      <div class="pending-note" id="pendingNote" role="status" hidden></div>
+      <table class="checks" id="checks" hidden></table>
+      <div>
+        <h3 class="notes-title">General notes</h3>
+        <ol class="notes" id="notes"></ol>
+      </div>
+    </section>
+  </main>
+
+  <section class="band" aria-labelledby="libTitle">
+    <h2 class="band-title" id="libTitle">Formula library</h2>
+    <p class="lede">Building blocks for most parametric families. Swap in your own parameter names.</p>
+    <ul class="lib" id="patterns"></ul>
+  </section>
+
+  <section class="band" aria-labelledby="refTitle">
+    <h2 class="band-title" id="refTitle">Function reference</h2>
+    <div class="ref-grid">
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Write</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td><code class="nw">sin(x) cos(x) tan(x)</code></td><td>Trig on an angle parameter or an angle like 30°</td></tr>
+            <tr><td><code class="nw">asin(x) acos(x) atan(x)</code></td><td>Inverse trig on a plain ratio. Returns an angle.</td></tr>
+            <tr><td><code class="nw">sqrt(x)</code></td><td>Square root. An area in gives a length out.</td></tr>
+            <tr><td><code class="nw">x ^ y</code></td><td>Power, so <code>R ^ 2</code> is an area</td></tr>
+            <tr><td><code class="nw">pi()</code></td><td>3.14159…</td></tr>
+            <tr><td><code class="nw">abs(x)</code></td><td>Absolute value</td></tr>
+            <tr><td><code class="nw">exp(x) ln(x) log(x)</code></td><td>e to the x, natural log, base-10 log</td></tr>
+            <tr><td><code class="nw">round(x) roundup(x) rounddown(x)</code></td><td>Rounding. Use on a plain ratio like <code>W / M</code>.</td></tr>
+            <tr><td><code class="nw">if(test, a, b)</code></td><td>Conditional. Combine tests with <code>and()</code>, <code>or()</code>, <code>not()</code>.</td></tr>
+            <tr><td><code class="nw">&lt;  &gt;  =</code></td><td>The only comparisons. There is no <code>&gt;=</code> or <code>&lt;=</code>.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Goal</th><th>Write</th></tr></thead>
+          <tbody>
+            <tr><td>Strip units from a length</td><td><code class="nw">Length / 1'</code> or <code class="nw">Length / 1 mm</code></td></tr>
+            <tr><td>Give a number length units</td><td><code class="nw">Number * 1'</code></td></tr>
+            <tr><td>Strip units from an area</td><td><code class="nw">Area / 1 SF</code></td></tr>
+            <tr><td>Angle to plain radians</td><td><code class="nw">Angle * pi() / 180°</code></td></tr>
+            <tr><td>Radians back to an angle</td><td><code class="nw">Number * 180° / pi()</code></td></tr>
+            <tr><td>Complement of an acute angle</td><td><code class="nw">90° - Angle</code></td></tr>
+            <tr><td>Feet and inches in a formula</td><td><code class="nw">2' 6"</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div>Values here are for checking your inputs. Revit evaluates the formulas itself, in your family's units.</div>
+    <div>Scale: NTS</div>
+  </footer>
+</div>
+
+<script>
+(function () {
+'use strict';
+
+/* CORE START */
+var DEG = Math.PI / 180;
+var IN = 1 / 12; // one inch, in feet (all lengths are stored in feet)
+
+function pairModes(pairs) { return pairs.map(function (p) { return { key: p.join(''), known: p }; }); }
+
+var META = {
+  arc: {
+    title: 'Arc', hash: 'arc',
+    syms: ['R', 'T', 'C', 'S', 'L'],
+    info: {
+      R: { letter: 'R', name: 'Radius', kind: 'len' },
+      T: { letter: 'θ', name: 'Included angle', kind: 'ang' },
+      C: { letter: 'C', name: 'Chord length', kind: 'len' },
+      S: { letter: 'S', name: 'Sagitta (arc height)', kind: 'len' },
+      L: { letter: 'L', name: 'Arc length', kind: 'len' }
+    },
+    fixed: [],
+    modes: pairModes([['R','T'],['R','C'],['R','S'],['R','L'],['T','C'],['T','S'],['T','L'],['C','S'],['C','L'],['S','L']])
+  },
+  tri: {
+    title: 'Right triangle', hash: 'triangle',
+    syms: ['a', 'b', 'c', 'A', 'B'],
+    info: {
+      a: { letter: 'a', name: 'Side a (rise)', kind: 'len' },
+      b: { letter: 'b', name: 'Side b (run)', kind: 'len' },
+      c: { letter: 'c', name: 'Side c (hypotenuse)', kind: 'len' },
+      A: { letter: 'A', name: 'Angle A', kind: 'ang' },
+      B: { letter: 'B', name: 'Angle B', kind: 'ang' }
+    },
+    fixed: [],
+    modes: pairModes([['a','b'],['a','c'],['b','c'],['a','A'],['a','B'],['b','A'],['b','B'],['c','A'],['c','B']])
+  },
+  array: {
+    title: 'Array', hash: 'array',
+    syms: ['W', 'N', 'G', 'S', 'Gx', 'Sx', 't1', 't', 'tn'],
+    info: {
+      W: { letter: 'W', name: 'Total length', kind: 'len' },
+      N: { letter: 'N', name: 'Number of panels', kind: 'int', min: 2 },
+      G: { letter: 'G', name: 'Gap between panels', kind: 'len' },
+      S: { letter: 'S', name: 'Spacing on center', kind: 'len' },
+      Gx: { letter: 'max G', badge: 'Gm', name: 'Largest gap allowed', kind: 'len', from: 'G' },
+      Sx: { letter: 'max S', badge: 'Sm', name: 'Largest spacing allowed', kind: 'len', from: 'S' },
+      t1: { letter: 't1', name: 'First panel thickness', kind: 'len' },
+      t: { letter: 't', name: 'Typical panel thickness', kind: 'len' },
+      tn: { letter: 'tn', name: 'Last panel thickness', kind: 'len' }
+    },
+    fixed: ['t1', 't', 'tn'],
+    modes: [
+      { key: 'WN', known: ['W', 'N'] },
+      { key: 'WGx', known: ['W', 'Gx'], label: 'W & max G' },
+      { key: 'WSx', known: ['W', 'Sx'], label: 'W & max S' },
+      { key: 'NG', known: ['N', 'G'] },
+      { key: 'NS', known: ['N', 'S'] }
+    ]
+  },
+  stair: {
+    title: 'Stair', hash: 'stair',
+    syms: ['H', 'N', 'R', 'Rx', 'T'],
+    info: {
+      H: { letter: 'H', name: 'Floor-to-floor height', kind: 'len' },
+      N: { letter: 'N', name: 'Number of risers', kind: 'int', min: 1 },
+      R: { letter: 'R', name: 'Riser height', kind: 'len' },
+      Rx: { letter: 'max R', badge: 'Rm', name: 'Tallest riser allowed', kind: 'len', from: 'R' },
+      T: { letter: 'T', name: 'Tread depth', kind: 'len' }
+    },
+    fixed: ['T'],
+    modes: [
+      { key: 'HRx', known: ['H', 'Rx'], label: 'H & max R' },
+      { key: 'HN', known: ['H', 'N'] },
+      { key: 'NR', known: ['N', 'R'] }
+    ],
+    presets: [
+      { label: 'IBC commercial', set: { Rx: 7 * IN, T: 11 * IN } },
+      { label: 'IRC residential', set: { Rx: 7.75 * IN, T: 10 * IN } }
+    ]
+  },
+  poly: {
+    title: 'Polygon', hash: 'polygon',
+    syms: ['n', 's', 'R', 'a', 'F'],
+    info: {
+      n: { letter: 'n', name: 'Number of sides', kind: 'int', min: 3 },
+      s: { letter: 's', name: 'Side length', kind: 'len' },
+      R: { letter: 'R', name: 'Radius to corners', kind: 'len' },
+      a: { letter: 'a', name: 'Apothem (center to flat)', kind: 'len' },
+      F: { letter: 'F', name: 'Across flats', kind: 'len' }
+    },
+    fixed: [],
+    modes: pairModes([['n','s'],['n','R'],['n','a'],['n','F']])
+  },
+  module: {
+    title: 'Snap to module', hash: 'module',
+    syms: ['N', 'Dm', 'X', 'D', 'M'],
+    info: {
+      D: { letter: 'D', name: 'Target dimension', kind: 'len' },
+      M: { letter: 'M', name: 'Module', kind: 'len' },
+      N: { letter: 'N', name: 'Number of modules', kind: 'int', min: 1 },
+      Dm: { letter: 'D′', name: 'Dimension on module', kind: 'len' },
+      X: { letter: 'Δ', name: 'Change from target', kind: 'slen' }
+    },
+    fixed: [],
+    modes: [
+      { key: 'down', known: ['D', 'M'], label: 'Round down', sub: 'Never above the target' },
+      { key: 'near', known: ['D', 'M'], label: 'Nearest', sub: 'Closest whole module' },
+      { key: 'up', known: ['D', 'M'], label: 'Round up', sub: 'Never below the target' },
+      { key: 'NM', known: ['N', 'M'] }
+    ],
+    presets: [
+      { label: 'CMU course 8"', set: { M: 8 * IN } },
+      { label: 'Brick course 2 2/3"', set: { M: 8 / 3 * IN } },
+      { label: 'Stud 16" o.c.', set: { M: 16 * IN } },
+      { label: 'Ceiling grid 2\'', set: { M: 2 } },
+      { label: '600 mm', set: { M: 600 / 304.8 } }
+    ]
+  }
+};
+var TAB_ORDER = ['arc', 'tri', 'array', 'stair', 'poly', 'module'];
+
+var F_RL = {
+  T: '{L} / {R} * 180° / pi()',
+  C: '2 * {R} * sin({L} / (2 * {R}) * 180° / pi())',
+  S: '{R} - {R} * cos({L} / (2 * {R}) * 180° / pi())'
+};
+var F_ARRAY_G = '({W} - {t1} - {tn} - ({N} - 2) * {t}) / ({N} - 1)';
+
+var FORMULAS = {
+  arc: {
+    RT: { C: '2 * {R} * sin({T} / 2)', S: '{R} - {R} * cos({T} / 2)', L: '{R} * {T} * pi() / 180°' },
+    RC: { T: '2 * asin({C} / (2 * {R}))', S: '{R} - sqrt({R} ^ 2 - ({C} / 2) ^ 2)', L: '{R} * asin({C} / (2 * {R})) * pi() / 90°' },
+    RC_alt: { T: '360° - 2 * asin({C} / (2 * {R}))', S: '{R} + sqrt({R} ^ 2 - ({C} / 2) ^ 2)', L: '{R} * (360° - 2 * asin({C} / (2 * {R}))) * pi() / 180°' },
+    RS: { T: '2 * acos(({R} - {S}) / {R})', C: '2 * sqrt({S} * (2 * {R} - {S}))', L: '{R} * acos(({R} - {S}) / {R}) * pi() / 90°' },
+    RL: F_RL,
+    TC: { R: '{C} / (2 * sin({T} / 2))', S: '{C} / 2 * tan({T} / 4)', L: '{C} * {T} * pi() / (360° * sin({T} / 2))' },
+    TS: { R: '{S} / (1 - cos({T} / 2))', C: '2 * {S} / tan({T} / 4)', L: '{S} * {T} * pi() / (180° * (1 - cos({T} / 2)))' },
+    TL: { R: '{L} * 180° / ({T} * pi())', C: '360° * {L} * sin({T} / 2) / ({T} * pi())', S: '180° * {L} * (1 - cos({T} / 2)) / ({T} * pi())' },
+    CS: { R: '({C} ^ 2 + 4 * {S} ^ 2) / (8 * {S})', T: '4 * atan(2 * {S} / {C})', L: '({C} ^ 2 + 4 * {S} ^ 2) * atan(2 * {S} / {C}) * pi() / (360° * {S})' },
+    CL: { R: null, T: F_RL.T, S: F_RL.S },
+    SL: { R: null, T: F_RL.T, C: F_RL.C }
+  },
+  tri: {
+    ab: { c: 'sqrt({a} ^ 2 + {b} ^ 2)', A: 'atan({a} / {b})', B: 'atan({b} / {a})' },
+    ac: { b: 'sqrt({c} ^ 2 - {a} ^ 2)', A: 'asin({a} / {c})', B: 'acos({a} / {c})' },
+    bc: { a: 'sqrt({c} ^ 2 - {b} ^ 2)', A: 'acos({b} / {c})', B: 'asin({b} / {c})' },
+    aA: { b: '{a} / tan({A})', c: '{a} / sin({A})', B: '90° - {A}' },
+    aB: { b: '{a} * tan({B})', c: '{a} / cos({B})', A: '90° - {B}' },
+    bA: { a: '{b} * tan({A})', c: '{b} / cos({A})', B: '90° - {A}' },
+    bB: { a: '{b} / tan({B})', c: '{b} / sin({B})', A: '90° - {B}' },
+    cA: { a: '{c} * sin({A})', b: '{c} * cos({A})', B: '90° - {A}' },
+    cB: { a: '{c} * cos({B})', b: '{c} * sin({B})', A: '90° - {B}' }
+  },
+  array: {
+    WN: { G: F_ARRAY_G, S: '{G} + {t}' },
+    WGx: { N: 'roundup(({W} - {t1} - {tn} + {t}) / ({Gx} + {t}) - 0.0001) + 1', G: F_ARRAY_G, S: '{G} + {t}' },
+    WSx: { N: 'roundup(({W} - {t1} - {tn} + {t}) / {Sx} - 0.0001) + 1', G: F_ARRAY_G, S: '{G} + {t}' },
+    NG: { W: '{t1} + {tn} + ({N} - 2) * {t} + ({N} - 1) * {G}', S: '{G} + {t}' },
+    NS: { W: '{t1} + {tn} + ({N} - 2) * {t} + ({N} - 1) * ({S} - {t})', G: '{S} - {t}' }
+  },
+  stair: {
+    HRx: { N: 'roundup({H} / {Rx} - 0.0001)', R: '{H} / {N}' },
+    HN: { R: '{H} / {N}' },
+    NR: { H: '{N} * {R}' }
+  },
+  poly: {
+    ns: { R: '{s} / (2 * sin(180° / {n}))', a: '{s} / (2 * tan(180° / {n}))', F: '{s} / tan(180° / {n})' },
+    nR: { s: '2 * {R} * sin(180° / {n})', a: '{R} * cos(180° / {n})', F: '2 * {R} * cos(180° / {n})' },
+    na: { s: '2 * {a} * tan(180° / {n})', R: '{a} / cos(180° / {n})', F: '2 * {a}' },
+    nF: { s: '{F} * tan(180° / {n})', R: '{F} / (2 * cos(180° / {n}))', a: '{F} / 2' }
+  },
+  module: {
+    down: { N: 'rounddown({D} / {M} + 0.0001)', Dm: '{N} * {M}', X: '{Dm} - {D}' },
+    near: { N: 'round({D} / {M})', Dm: '{N} * {M}', X: '{Dm} - {D}' },
+    up: { N: 'roundup({D} / {M} - 0.0001)', Dm: '{N} * {M}', X: '{Dm} - {D}' },
+    NM: { D: '{N} * {M}' }
+  }
+};
+
+var DERIVED = {
+  arc: [
+    { key: 'D', name: 'Diameter', f: '2 * {R}', kind: 'len' },
+    { key: 'LS', name: 'Long sagitta', f: '2 * {R} - {S}', kind: 'len' },
+    { key: 'CIRC', name: 'Circumference', f: '2 * pi() * {R}', kind: 'len' },
+    { key: 'SEG', name: 'Segment area (between arc and chord)', f: '{R} ^ 2 / 2 * ({T} * pi() / 180° - sin({T}))', kind: 'area' },
+    { key: 'AREA', name: 'Full circle area', f: 'pi() * {R} ^ 2', kind: 'area' }
+  ],
+  tri: [
+    { key: 'AR', name: 'Area', f: '{a} * {b} / 2', kind: 'area' },
+    { key: 'P', name: 'Perimeter', f: '{a} + {b} + {c}', kind: 'len' },
+    { key: 'PITCH', name: 'Slope as rise per 12 run', f: '12 * {a} / {b}', kind: 'pitch', sys: 'imp' },
+    { key: 'PCT', name: 'Slope as percent', f: '100 * {a} / {b}', kind: 'pct', sys: 'met' }
+  ],
+  array: [
+    { key: 'MID', name: 'Middle panels', f: '{N} - 2', kind: 'int' },
+    { key: 'ARR', name: 'Middle array count, held at 2 or more', f: 'if({N} < 4, 2, {N} - 2)', kind: 'int' },
+    { key: 'OFF', name: 'Array start, to face of first middle panel', f: '{t1} + {G}', kind: 'len' },
+    { key: 'TOT', name: 'Total panel thickness', f: '{t1} + {tn} + ({N} - 2) * {t}', kind: 'len' },
+    { key: 'CLR', name: 'Total clear space', f: '({N} - 1) * {G}', kind: 'len' }
+  ],
+  stair: [
+    { key: 'TR', name: 'Treads', f: '{N} - 1', kind: 'int' },
+    { key: 'RUN', name: 'Total run', f: '({N} - 1) * {T}', kind: 'len' },
+    { key: 'ANG', name: 'Stair angle', f: 'atan({R} / {T})', kind: 'ang' },
+    { key: 'PL', name: 'Pitch line, first to last nosing', f: '({N} - 1) * sqrt({R} ^ 2 + {T} ^ 2)', kind: 'len' },
+    { key: 'CMF', name: 'Comfort rule, 2R + T', f: '2 * {R} + {T}', kind: 'len' }
+  ],
+  poly: [
+    { key: 'K', name: 'Across corners', f: '2 * {R}', kind: 'len' },
+    { key: 'P', name: 'Perimeter', f: '{n} * {s}', kind: 'len' },
+    { key: 'AR', name: 'Area', f: '{n} * {s} * {a} / 2', kind: 'area' },
+    { key: 'IA', name: 'Interior angle', f: '180° - 360° / {n}', kind: 'ang' },
+    { key: 'CA', name: 'Central angle per side', f: '360° / {n}', kind: 'ang' }
+  ],
+  module: []
+};
+
+/* Same guard as the Revit formulas: exact multiples (9' 4" / 8" = 14.000000000000002) must not tip over. */
+function ceilTol(x) { return Math.ceil(x - 1e-4); }
+function floorTol(x) { return Math.floor(x + 1e-4); }
+function roundTol(x) { return Math.round(x + 1e-9); }
+
+/* Solve sin(x)/x = y for x in (0, pi). The function falls from 1 to 0 there. */
+function solveSinc(y) {
+  var lo = 1e-12, hi = Math.PI;
+  for (var i = 0; i < 200; i++) {
+    var mid = (lo + hi) / 2;
+    if (Math.sin(mid) / mid > y) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+/* S/L as a function of half-angle x: rises to a peak near x = 2.33 rad (θ ≈ 267°), then falls to 1/π. */
+function slRatio(x) { return (1 - Math.cos(x)) / (2 * x); }
+function solveSL(y) {
+  var lo = 1e-9, hi = Math.PI, i;
+  for (i = 0; i < 200; i++) {
+    var m1 = lo + (hi - lo) / 3, m2 = hi - (hi - lo) / 3;
+    if (slRatio(m1) < slRatio(m2)) lo = m1; else hi = m2;
+  }
+  var xp = (lo + hi) / 2, fmax = slRatio(xp);
+  if (y > fmax * (1 + 1e-12)) return [];
+  var roots = [], a = 1e-12, b = xp;
+  for (i = 0; i < 200; i++) { var m = (a + b) / 2; if (slRatio(m) < y) a = m; else b = m; }
+  roots.push((a + b) / 2);
+  if (y > slRatio(Math.PI) && y < fmax * (1 - 1e-12)) {
+    a = xp; b = Math.PI;
+    for (i = 0; i < 200; i++) { var mm = (a + b) / 2; if (slRatio(mm) > y) a = mm; else b = mm; }
+    roots.push((a + b) / 2);
+  }
+  return roots;
+}
+
+function solveArc(mode, v, alt, out) {
+  var key = mode.key, R, T, t, x;
+  if (mode.known.indexOf('T') >= 0 && v.T >= 360) { out.err = 'The included angle θ must be less than 360°.'; return out; }
+  switch (key) {
+    case 'RT': R = v.R; T = v.T; break;
+    case 'RC':
+      if (v.C > 2 * v.R * (1 + 1e-12)) { out.err = 'The chord C can’t be longer than the diameter (2R).'; return out; }
+      t = 2 * Math.asin(Math.min(1, v.C / (2 * v.R))) / DEG;
+      out.hasAlt = t < 180 - 1e-9;
+      R = v.R;
+      if (alt && out.hasAlt) { T = 360 - t; out.key = 'RC_alt'; out.isAlt = true; } else { T = t; }
+      break;
+    case 'RS':
+      if (v.S >= 2 * v.R) { out.err = 'The sagitta S must be less than the diameter (2R).'; return out; }
+      R = v.R; T = 2 * Math.acos((v.R - v.S) / v.R) / DEG; break;
+    case 'RL':
+      if (v.L >= 2 * Math.PI * v.R) { out.err = 'The arc length L must be less than the full circumference (2πR).'; return out; }
+      R = v.R; T = v.L / v.R / DEG; break;
+    case 'TC': T = v.T; R = v.C / (2 * Math.sin(T * DEG / 2)); break;
+    case 'TS': T = v.T; R = v.S / (1 - Math.cos(T * DEG / 2)); break;
+    case 'TL': T = v.T; R = v.L / (T * DEG); break;
+    case 'CS': R = (v.C * v.C + 4 * v.S * v.S) / (8 * v.S); T = 4 * Math.atan(2 * v.S / v.C) / DEG; break;
+    case 'CL':
+      if (v.L <= v.C) { out.err = 'The arc length L must be longer than the chord C.'; return out; }
+      x = solveSinc(v.C / v.L); T = 2 * x / DEG; R = v.L / (2 * x); out.numeric = true; break;
+    case 'SL':
+      var roots = solveSL(v.S / v.L);
+      if (!roots.length) { out.err = 'The sagitta S is too tall for that arc length. S can be at most about 36% of L.'; return out; }
+      out.hasAlt = roots.length > 1;
+      x = (alt && out.hasAlt) ? roots[1] : roots[0];
+      out.isAlt = !!(alt && out.hasAlt);
+      T = 2 * x / DEG; R = v.L / (2 * x); out.numeric = true; break;
+    default: out.err = 'Unknown setting.'; return out;
+  }
+  var h = T * DEG / 2;
+  var vals = { R: R, T: T, C: 2 * R * Math.sin(h), S: R * (1 - Math.cos(h)), L: R * T * DEG };
+  mode.known.forEach(function (s) { vals[s] = v[s]; });
+  out.vals = vals;
+  out.derived = {
+    D: 2 * vals.R, LS: 2 * vals.R - vals.S, CIRC: 2 * Math.PI * vals.R,
+    SEG: vals.R * vals.R / 2 * (vals.T * DEG - Math.sin(vals.T * DEG)),
+    AREA: Math.PI * vals.R * vals.R
+  };
+  out.ok = true;
+  return out;
+}
+
+function solveTri(mode, v, out) {
+  var key = mode.key, a, b;
+  if ((mode.known.indexOf('A') >= 0 && v.A >= 90) || (mode.known.indexOf('B') >= 0 && v.B >= 90)) { out.err = 'An acute angle must be less than 90°.'; return out; }
+  switch (key) {
+    case 'ab': a = v.a; b = v.b; break;
+    case 'ac':
+      if (v.a >= v.c) { out.err = 'Side a must be shorter than the hypotenuse c.'; return out; }
+      a = v.a; b = Math.sqrt(v.c * v.c - v.a * v.a); break;
+    case 'bc':
+      if (v.b >= v.c) { out.err = 'Side b must be shorter than the hypotenuse c.'; return out; }
+      b = v.b; a = Math.sqrt(v.c * v.c - v.b * v.b); break;
+    case 'aA': a = v.a; b = v.a / Math.tan(v.A * DEG); break;
+    case 'aB': a = v.a; b = v.a * Math.tan(v.B * DEG); break;
+    case 'bA': b = v.b; a = v.b * Math.tan(v.A * DEG); break;
+    case 'bB': b = v.b; a = v.b / Math.tan(v.B * DEG); break;
+    case 'cA': a = v.c * Math.sin(v.A * DEG); b = v.c * Math.cos(v.A * DEG); break;
+    case 'cB': a = v.c * Math.cos(v.B * DEG); b = v.c * Math.sin(v.B * DEG); break;
+    default: out.err = 'Two angles fix the shape but not the size. Add one side.'; return out;
+  }
+  var vals = { a: a, b: b, c: Math.sqrt(a * a + b * b), A: Math.atan2(a, b) / DEG, B: Math.atan2(b, a) / DEG };
+  mode.known.forEach(function (s) { vals[s] = v[s]; });
+  out.vals = vals;
+  out.derived = { AR: vals.a * vals.b / 2, P: vals.a + vals.b + vals.c, PITCH: 12 * vals.a / vals.b, PCT: 100 * vals.a / vals.b };
+  out.ok = true;
+  return out;
+}
+
+function solveArray(mode, v, out) {
+  var t1 = v.t1, t = v.t, tn = v.tn, W, N, G;
+  switch (mode.key) {
+    case 'WN': W = v.W; N = v.N; break;
+    case 'WGx': W = v.W; N = ceilTol((W - t1 - tn + t) / (v.Gx + t)) + 1; break;
+    case 'WSx':
+      if (v.Sx <= t) { out.err = 'The largest spacing has to be more than the typical panel thickness t.'; return out; }
+      W = v.W; N = ceilTol((W - t1 - tn + t) / v.Sx) + 1; break;
+    case 'NG': N = v.N; G = v.G; W = t1 + tn + (N - 2) * t + (N - 1) * G; break;
+    case 'NS':
+      if (v.S <= t) { out.err = 'Spacing S has to be more than the typical panel thickness t.'; return out; }
+      N = v.N; G = v.S - t; W = t1 + tn + (N - 2) * t + (N - 1) * G; break;
+    default: out.err = 'Unknown setting.'; return out;
+  }
+  if (G == null) G = (W - t1 - tn - (N - 2) * t) / (N - 1);
+  if (W - t1 - tn - (N - 2) * t < -1e-12 || N < 2) { out.err = 'The panels don’t fit. Their thicknesses add up to more than W, so use fewer panels or a longer total.'; return out; }
+  var vals = { W: W, N: N, G: G, S: G + t, Gx: v.Gx, Sx: v.Sx, t1: t1, t: t, tn: tn };
+  mode.known.forEach(function (s) { vals[s] = v[s]; });
+  out.vals = vals;
+  out.derived = { MID: N - 2, ARR: N < 4 ? 2 : N - 2, OFF: t1 + G, TOT: t1 + tn + (N - 2) * t, CLR: (N - 1) * G };
+  out.ok = true;
+  return out;
+}
+
+function solveStair(mode, v, out) {
+  var H, N, R, T = v.T;
+  switch (mode.key) {
+    case 'HRx': H = v.H; N = ceilTol(H / v.Rx); R = H / N; break;
+    case 'HN': H = v.H; N = v.N; R = H / N; break;
+    case 'NR': N = v.N; R = v.R; H = N * R; break;
+    default: out.err = 'Unknown setting.'; return out;
+  }
+  var vals = { H: H, N: N, R: R, Rx: v.Rx, T: T };
+  mode.known.forEach(function (s) { vals[s] = v[s]; });
+  out.vals = vals;
+  out.derived = { TR: N - 1, RUN: (N - 1) * T, ANG: Math.atan(R / T) / DEG, PL: (N - 1) * Math.sqrt(R * R + T * T), CMF: 2 * R + T };
+  var e = 1e-9;
+  out.checks = [
+    { label: 'IBC commercial', ok: R >= 4 * IN - e && R <= 7 * IN + e && T >= 11 * IN - e, detail: 'Riser 4" to 7" (102 to 178 mm), tread 11" (279 mm) min' },
+    { label: 'IRC residential', ok: R <= 7.75 * IN + e && T >= 10 * IN - e, detail: 'Riser 7 3/4" (196 mm) max, tread 10" (254 mm) min' },
+    { label: 'Comfort', ok: 2 * R + T >= 24 * IN - e && 2 * R + T <= 25 * IN + e, detail: '2R + T between 24" and 25" (610 to 635 mm)' }
+  ];
+  out.ok = true;
+  return out;
+}
+
+function solvePoly(mode, v, out) {
+  var n = v.n, k = Math.PI / n, R;
+  switch (mode.key) {
+    case 'ns': R = v.s / (2 * Math.sin(k)); break;
+    case 'nR': R = v.R; break;
+    case 'na': R = v.a / Math.cos(k); break;
+    case 'nF': R = v.F / (2 * Math.cos(k)); break;
+    default: out.err = 'Unknown setting.'; return out;
+  }
+  var vals = { n: n, R: R, s: 2 * R * Math.sin(k), a: R * Math.cos(k), F: 2 * R * Math.cos(k) };
+  mode.known.forEach(function (s) { vals[s] = v[s]; });
+  out.vals = vals;
+  out.derived = { K: 2 * vals.R, P: n * vals.s, AR: n * vals.s * vals.a / 2, IA: 180 - 360 / n, CA: 360 / n };
+  out.ok = true;
+  return out;
+}
+
+function solveModule(mode, v, out) {
+  var D, M = v.M, N;
+  switch (mode.key) {
+    case 'down': D = v.D; N = floorTol(D / M); break;
+    case 'near': D = v.D; N = roundTol(D / M); break;
+    case 'up': D = v.D; N = ceilTol(D / M); break;
+    case 'NM': N = v.N; D = N * M; break;
+    default: out.err = 'Unknown setting.'; return out;
+  }
+  var vals = { D: D, M: M, N: N, Dm: N * M, X: N * M - D };
+  mode.known.forEach(function (s) { vals[s] = v[s]; });
+  out.vals = vals;
+  out.derived = {};
+  out.ok = true;
+  return out;
+}
+
+function solve(tab, mode, v, alt) {
+  var meta = META[tab], info = meta.info;
+  var out = { ok: false, err: null, vals: null, derived: null, hasAlt: false, isAlt: false, numeric: false, checks: null, key: mode.key };
+  var need = mode.known.concat(meta.fixed);
+  for (var i = 0; i < need.length; i++) {
+    var s = need[i], x = v[s], m = info[s];
+    if (x == null || !isFinite(x)) { out.err = 'Enter a value for ' + m.name.toLowerCase() + ' (' + m.letter + ').'; return out; }
+    if (m.kind === 'int') {
+      if (Math.round(x) !== x || x < m.min) { out.err = m.name + ' (' + m.letter + ') must be a whole number, ' + m.min + ' or more.'; return out; }
+    } else if (x <= 0) { out.err = m.name + ' (' + m.letter + ') must be greater than zero.'; return out; }
+  }
+  switch (tab) {
+    case 'arc': return solveArc(mode, v, alt, out);
+    case 'tri': return solveTri(mode, v, out);
+    case 'array': return solveArray(mode, v, out);
+    case 'stair': return solveStair(mode, v, out);
+    case 'poly': return solvePoly(mode, v, out);
+    case 'module': return solveModule(mode, v, out);
+  }
+  out.err = 'Unknown solver.';
+  return out;
+}
+/* CORE END */
+
+/* ---------- Units and formatting ---------- */
+var UNITS = {
+  ftin: { factor: 1, imperial: true, suffix: '', sub: 'Feet-inches: type 10\' 6 1/2" or 10.5 (feet)' },
+  'in': { factor: 1 / 12, imperial: true, suffix: 'in', sub: 'Decimal inches, or fractions like 126 1/2' },
+  ft: { factor: 1, imperial: true, suffix: 'ft', sub: 'Decimal feet' },
+  mm: { factor: 1 / 304.8, imperial: false, suffix: 'mm', sub: 'Millimeters' },
+  m: { factor: 1 / 0.3048, imperial: false, suffix: 'm', sub: 'Meters' }
+};
+
+function trimNum(x, d, grouping) {
+  var n = Number(x.toFixed(d));
+  if (Object.is(n, -0)) n = 0;
+  return grouping ? n.toLocaleString('en-US', { maximumFractionDigits: d }) : String(n);
+}
+function fmtFtIn(ft) {
+  if (ft < 0) return '-' + fmtFtIn(-ft);
+  var six = Math.round(ft * 12 * 16);
+  var feet = Math.floor(six / 192);
+  var rem = six - feet * 192;
+  var inch = Math.floor(rem / 16), frac = rem - inch * 16, den = 16;
+  while (frac && frac % 2 === 0) { frac /= 2; den /= 2; }
+  var inStr = frac ? (inch ? inch + ' ' + frac + '/' + den : frac + '/' + den) : String(inch);
+  return feet ? feet + '\' ' + inStr + '"' : inStr + '"';
+}
+function fmtLen(ft, unit, forInput) {
+  switch (unit) {
+    case 'ftin': return fmtFtIn(ft);
+    case 'in': return forInput ? trimNum(ft * 12, 4) : trimNum(ft * 12, 3, true) + '"';
+    case 'ft': return forInput ? trimNum(ft, 5) : trimNum(ft, 4, true) + '\'';
+    case 'mm': return forInput ? trimNum(ft * 304.8, 3) : trimNum(ft * 304.8, 1, true) + ' mm';
+    case 'm': return forInput ? trimNum(ft * 0.3048, 5) : trimNum(ft * 0.3048, 4, true) + ' m';
+  }
+  return String(ft);
+}
+function fmtAng(deg, forInput) { return forInput ? trimNum(deg, 5) : trimNum(deg, 4, true) + '°'; }
+function fmtArea(ft2, unit) {
+  if (unit === 'ftin' || unit === 'ft') return trimNum(ft2, 2, true) + ' SF';
+  if (unit === 'in') return trimNum(ft2 * 144, 2, true) + ' in²';
+  return trimNum(ft2 * 0.09290304, 3, true) + ' m²';
+}
+function parseMixed(s) {
+  s = s.trim();
+  var m = s.match(/^(\d+(?:\.\d*)?|\.\d+)$/);
+  if (m) return parseFloat(m[1]);
+  m = s.match(/^(\d+)(?:\s+|\s*-\s*)(\d+)\s*\/\s*(\d+)$/);
+  if (m && +m[3] > 0) return +m[1] + m[2] / m[3];
+  m = s.match(/^(\d+)\s*\/\s*(\d+)$/);
+  if (m && +m[2] > 0) return m[1] / m[2];
+  return null;
+}
+function parseLen(raw, unit) {
+  var s = String(raw).trim().replace(/,/g, '').replace(/[′’‘`]/g, '\'').replace(/[″“”]/g, '"').replace(/''/g, '"');
+  if (!s) return null;
+  if (unit === 'ftin') {
+    var feet = 0, ftm = s.match(/^(\d+(?:\.\d*)?|\.\d+)\s*'/);
+    if (ftm) {
+      feet = parseFloat(ftm[1]);
+      s = s.slice(ftm[0].length).trim().replace(/^-\s*/, '');
+      if (!s) return feet;
+    } else if (s.indexOf('"') < 0) {
+      return parseMixed(s);
+    }
+    s = s.replace(/"\s*$/, '').trim();
+    if (!s) return feet;
+    var inch = parseMixed(s);
+    return inch == null ? null : feet + inch / 12;
+  }
+  s = s.replace(/\s*(mm|m|in|ft|"|')\s*$/i, '');
+  var n = parseMixed(s);
+  return n == null ? null : n * UNITS[unit].factor;
+}
+function parseAng(raw) {
+  var s = String(raw).trim().replace(/\s*(°|deg|degrees)\s*$/i, '');
+  if (!s) return null;
+  return parseMixed(s);
+}
+function parseInt10(raw) {
+  var s = String(raw).trim();
+  return /^\d+$/.test(s) ? parseInt(s, 10) : null;
+}
+
+/* ---------- State ---------- */
+var DEFAULT_NAMES = {
+  arc: { R: 'R', T: 'θ', C: 'C', S: 'S', L: 'L' },
+  tri: { a: 'a', b: 'b', c: 'c', A: 'A', B: 'B' },
+  array: { W: 'W', N: 'N', G: 'G', S: 'S', Gx: 'Gmax', Sx: 'Smax', t1: 't1', t: 't', tn: 'tn' },
+  stair: { H: 'H', N: 'N', R: 'R', Rx: 'Rmax', T: 'T' },
+  poly: { n: 'n', s: 's', R: 'R', a: 'a', F: 'F' },
+  module: { D: 'Target', M: 'Module', N: 'Count', Dm: 'Snapped', X: 'Change' }
+};
+var DEFAULT_TABS = {
+  arc: { mode: 0, alt: false, vals: { R: 10, T: 90 }, raw: {} },
+  tri: { mode: 0, vals: { a: 4, b: 12 }, raw: {} },
+  array: { mode: 0, vals: { W: 6, N: 4, t1: 1.5 * IN, t: 0.75 * IN, tn: 1.5 * IN }, raw: {} },
+  stair: { mode: 0, vals: { H: 10, Rx: 7 * IN, T: 11 * IN }, raw: {} },
+  poly: { mode: 3, vals: { n: 8, F: 2 }, raw: {} },
+  module: { mode: 0, vals: { D: 9 + 5 * IN, M: 8 * IN }, raw: {} }
+};
+var SHEET = { arc: 'A-101', tri: 'A-102', array: 'A-103', stair: 'A-104', poly: 'A-105', module: 'A-106' };
+var STORE_KEY = 'revit-geometry-solver.v2';
+var state = { tab: 'arc', unit: 'ftin', names: JSON.parse(JSON.stringify(DEFAULT_NAMES)) };
+TAB_ORDER.forEach(function (t) { state[t] = JSON.parse(JSON.stringify(DEFAULT_TABS[t])); state[t].pending = null; });
+var lastGood = {};
+var dialRot = 0;
+var copyPayloads = [];
+var copyAllText = '';
+var LS = { logical: {}, display: {} };
+var K = {};
+var reduceMotion = false;
+try { reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+
+function $(s) { return document.querySelector(s); }
+function $$(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
+function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+function meta() { return META[state.tab]; }
+function cur() { return state[state.tab]; }
+function modes() { return meta().modes; }
+function curMode() { return modes()[cur().mode]; }
+function infoOf(s, tab) { return META[tab || state.tab].info[s]; }
+function badgeOf(s, tab) { var i = infoOf(s, tab); return i.badge || i.letter; }
+function lockSym(s, tab) { return infoOf(s, tab).from || s; }
+function modeLock(m) { return m.known.map(function (s) { return lockSym(s); }); }
+function lockable() {
+  var out = [];
+  modes().forEach(function (m) { modeLock(m).forEach(function (s) { if (out.indexOf(s) < 0) out.push(s); }); });
+  return out;
+}
+function isFixed(s) { return meta().fixed.indexOf(s) >= 0; }
+function modeLabel(m, tab) {
+  var info = META[tab || state.tab].info;
+  return m.label || m.known.map(function (s) { return info[s].letter; }).join(' & ');
+}
+function fmtInput(tab, s, val) {
+  var kind = infoOf(s, tab).kind;
+  if (kind === 'len') return fmtLen(val, state.unit, true);
+  if (kind === 'int') return String(Math.round(val));
+  return fmtAng(val, true);
+}
+function parseFor(s, raw) {
+  var kind = infoOf(s).kind;
+  if (kind === 'len') return parseLen(raw, state.unit);
+  if (kind === 'int') return parseInt10(raw);
+  return parseAng(raw);
+}
+function rawFor(s) {
+  var c = cur();
+  if (c.raw[s] == null) c.raw[s] = c.vals[s] != null ? fmtInput(state.tab, s, c.vals[s]) : '';
+  return c.raw[s];
+}
+function effNames() {
+  var out = {}, src = state.names[state.tab] || {}, def = DEFAULT_NAMES[state.tab];
+  Object.keys(def).forEach(function (s) { var n = (src[s] || '').trim(); out[s] = n || def[s]; });
+  return out;
+}
+function currentSolution() {
+  var c = cur();
+  return solve(state.tab, curMode(), c.vals, state.tab === 'arc' && c.alt);
+}
+function computeLocks() {
+  var c = cur(), m = curMode(), L = {}, D = {};
+  (c.pending ? [c.pending] : modeLock(m)).forEach(function (s) { L[s] = true; });
+  m.known.forEach(function (s) { if (L[lockSym(s)]) D[s] = true; });
+  meta().fixed.forEach(function (s) { D[s] = true; });
+  LS = { logical: L, display: D };
+  K = {};
+  Object.keys(L).forEach(function (s) { K[s] = true; });
+  Object.keys(D).forEach(function (s) { K[s] = true; });
+}
+
+function persist() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify({ unit: state.unit, names: state.names })); } catch (e) {}
+}
+function restore() {
+  try {
+    var d = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
+    if (d && UNITS[d.unit]) state.unit = d.unit;
+    if (d && d.names) mergeNames(d.names);
+  } catch (e) {}
+}
+function mergeNames(names) {
+  TAB_ORDER.forEach(function (t) {
+    if (names[t]) Object.keys(DEFAULT_NAMES[t]).forEach(function (s) { if (typeof names[t][s] === 'string') state.names[t][s] = names[t][s]; });
+  });
+}
+
+/* ---------- Ring ---------- */
+var svg = $('#dial'), ringTicks = $('#ringTicks'), ringLabels = $('#ringLabels');
+var SVGNS = 'http://www.w3.org/2000/svg';
+function el(name, attrs, parent) {
+  var n = document.createElementNS(SVGNS, name);
+  for (var k in attrs) n.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(n);
+  return n;
+}
+function buildRing() {
+  ringTicks.innerHTML = ''; ringLabels.innerHTML = '';
+  for (var i = 0; i < 120; i++) {
+    var a = i * 3 * DEG, major = i % 5 === 0;
+    var r1 = major ? 151 : 154.5;
+    el('line', { x1: 160 + r1 * Math.sin(a), y1: 160 - r1 * Math.cos(a), x2: 160 + 158 * Math.sin(a), y2: 160 - 158 * Math.cos(a), 'class': 'rtick' + (major ? ' major' : '') }, ringTicks);
+  }
+  var ms = modes(), n = ms.length, step = 360 / n;
+  ms.forEach(function (m, i) {
+    var phi = i * step, a = phi * DEG, r = 138;
+    var x = 160 + r * Math.sin(a), y = 160 - r * Math.cos(a);
+    var g = el('g', { 'data-idx': i, transform: 'rotate(' + phi + ' ' + x + ' ' + y + ')' }, ringLabels);
+    el('rect', { x: x - 52, y: y - 15, width: 104, height: 30, 'class': 'lbl-hit' }, g);
+    var t = el('text', { x: x, y: y, 'text-anchor': 'middle', 'dominant-baseline': 'central', 'class': 'rlabel', 'data-i': i }, g);
+    t.textContent = modeLabel(m);
+    var ta = (phi + step / 2) * DEG;
+    el('line', { x1: 160 + 124 * Math.sin(ta), y1: 160 - 124 * Math.cos(ta), x2: 160 + 132 * Math.sin(ta), y2: 160 - 132 * Math.cos(ta), 'class': 'rtick major' }, ringLabels);
+  });
+}
+function ringActive(idx) {
+  var a = idx == null ? cur().mode : idx;
+  $$('#ringLabels .rlabel').forEach(function (t) { t.classList.toggle('active', +t.getAttribute('data-i') === a); });
+}
+function applyRot(animate) {
+  [ringTicks, ringLabels].forEach(function (g) {
+    g.style.transition = (animate && !reduceMotion) ? '' : 'none';
+    g.style.transform = 'rotate(' + dialRot + 'deg)';
+  });
+}
+function rotateDialTo(idx, animate) {
+  var step = 360 / modes().length, target = -idx * step;
+  target += Math.round((dialRot - target) / 360) * 360;
+  dialRot = target;
+  applyRot(animate);
+}
+function nearestIdx(rot) {
+  var n = modes().length, step = 360 / n;
+  return ((Math.round(-rot / step) % n) + n) % n;
+}
+function toSvg(e) {
+  var pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+  return pt.matrixTransform(svg.getScreenCTM().inverse());
+}
+function inRing(p) { var d = Math.hypot(p.x - 160, p.y - 160); return d >= 124 && d <= 162; }
+var drag = null;
+svg.addEventListener('pointerdown', function (e) {
+  var p = toSvg(e);
+  if (!inRing(p)) return;
+  var a = Math.atan2(p.y - 160, p.x - 160) / DEG;
+  var tgt = e.target.closest ? e.target.closest('[data-idx]') : null;
+  drag = { id: e.pointerId, last: a, acc: 0, moved: 0, rot0: dialRot, target: tgt };
+  try { svg.setPointerCapture(e.pointerId); } catch (err) {}
+  svg.classList.add('dragging');
+  applyRot(false);
+});
+svg.addEventListener('pointermove', function (e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  var p = toSvg(e), a = Math.atan2(p.y - 160, p.x - 160) / DEG;
+  var da = a - drag.last; da = ((da + 540) % 360) - 180;
+  drag.last = a; drag.acc += da; drag.moved = Math.max(drag.moved, Math.abs(drag.acc));
+  dialRot = drag.rot0 + drag.acc;
+  applyRot(false);
+  var ni = nearestIdx(dialRot);
+  renderTitle(ni); ringActive(ni);
+});
+function endDrag(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  var d = drag; drag = null;
+  svg.classList.remove('dragging');
+  if (d.moved < 3 && d.target) setMode(+d.target.getAttribute('data-idx'));
+  else setMode(nearestIdx(dialRot));
+}
+svg.addEventListener('pointerup', endDrag);
+svg.addEventListener('pointercancel', endDrag);
+svg.addEventListener('touchstart', function (e) {
+  var t = e.touches[0];
+  if (t && inRing(toSvg(t))) e.preventDefault();
+}, { passive: false });
+svg.addEventListener('click', function (e) {
+  var t = e.target.closest && e.target.closest('[data-sym]');
+  if (t) clickLock(t.getAttribute('data-sym'));
+});
+svg.addEventListener('keydown', function (e) {
+  var i = cur().mode;
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { setMode(i - 1); e.preventDefault(); }
+  else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { setMode(i + 1); e.preventDefault(); }
+  else if (e.key === 'Home') { setMode(0); e.preventDefault(); }
+});
+$('#prev').addEventListener('click', function () { setMode(cur().mode - 1); });
+$('#next').addEventListener('click', function () { setMode(cur().mode + 1); });
+
+/* ---------- Locking ---------- */
+function findMode(a, b) {
+  var hits = [];
+  modes().forEach(function (m, i) {
+    var L = modeLock(m);
+    if ((L[0] === a && L[1] === b) || (L[0] === b && L[1] === a)) hits.push(i);
+  });
+  if (!hits.length) return -1;
+  return hits.indexOf(cur().mode) >= 0 ? cur().mode : hits[0];
+}
+function firstModeWith(sym) {
+  var ms = modes();
+  for (var i = 0; i < ms.length; i++) if (modeLock(ms[i]).indexOf(sym) >= 0) return i;
+  return -1;
+}
+function clickLock(sym) {
+  if (lockable().indexOf(sym) < 0) return;
+  var c = cur(), idx, order = modeLock(curMode());
+  if (c.pending) {
+    if (sym === c.pending) return;
+    idx = findMode(c.pending, sym);
+    if (idx < 0) idx = firstModeWith(sym);
+    c.pending = null;
+    setMode(idx);
+    return;
+  }
+  if (order.indexOf(sym) >= 0) {
+    c.pending = order[0] === sym ? order[1] : order[0];
+    renderTable(); update();
+    return;
+  }
+  var recent = c.order && c.order.length === 2 ? c.order : order;
+  idx = findMode(recent[1], sym);
+  if (idx < 0) idx = findMode(recent[0], sym);
+  if (idx < 0) idx = firstModeWith(sym);
+  setMode(idx, sym);
+}
+function setMode(idx, newest) {
+  var n = modes().length;
+  idx = ((idx % n) + n) % n;
+  var c = cur();
+  if (idx !== c.mode) {
+    var sol = currentSolution();
+    var oldT = sol.ok && state.tab === 'arc' ? sol.vals.T : null;
+    c.mode = idx;
+    if (sol.ok) {
+      // carry the current geometry into the new known values so the shape stays put
+      modes()[idx].known.forEach(function (s) {
+        var src = sol.vals[s];
+        if (src == null && infoOf(s).from) src = sol.vals[infoOf(s).from];
+        if (src != null) { c.vals[s] = src; c.raw[s] = fmtInput(state.tab, s, src); }
+      });
+      if (state.tab === 'arc') {
+        c.alt = false;
+        var test = currentSolution();
+        if (test.ok && test.hasAlt && Math.abs(test.vals.T - oldT) > 1e-6) c.alt = true;
+      }
+    }
+  }
+  c.pending = null;
+  var L = modeLock(modes()[idx]);
+  c.order = newest && L.indexOf(newest) >= 0 ? [L[0] === newest ? L[1] : L[0], newest] : L;
+  rotateDialTo(idx, true);
+  renderTable();
+  update();
+}
+
+/* ---------- Drawing ---------- */
+function lockIcon(g, cx, cy, closed) {
+  el('rect', { x: cx - 3.5, y: cy - 1.2, width: 7, height: 5.4, rx: 0.8, 'class': 'lk-body' }, g);
+  var d = closed
+    ? 'M' + (cx - 2.2) + ',' + (cy - 1.2) + 'v-2.2a2.2 2.2 0 0 1 4.4 0v2.2'
+    : 'M' + (cx - 2.2) + ',' + (cy - 1.2) + 'v-3.6a2.2 2.2 0 0 1 4.4 0';
+  el('path', { d: d, 'class': 'lk-shackle' }, g);
+}
+function tag(g, x, y, sym, label) {
+  var canLock = lockable().indexOf(sym) >= 0, fixed = isFixed(sym);
+  var on = !!K[sym];
+  var isMax = !!LS.logical[sym] && curMode().known.some(function (k) { return infoOf(k).from === sym; });
+  var text = (label || infoOf(sym).letter) + (isMax ? '≤' : '');
+  var icon = canLock || fixed;
+  var w = (icon ? 12 : 0) + text.length * 7 + 10;
+  var grp = el('g', { 'class': 'tag' + (on && icon ? ' on' : '') + (canLock ? ' click' : '') }, g);
+  if (canLock) grp.setAttribute('data-sym', sym);
+  el('rect', { x: x - w / 2 - 5, y: y - 15, width: w + 10, height: 30, 'class': 'tag-hit' }, grp);
+  el('rect', { x: x - w / 2, y: y - 9.5, width: w, height: 19, rx: 1.5, 'class': 'tag-box' }, grp);
+  var x0 = x - w / 2 + 5;
+  if (icon) lockIcon(grp, x0 + 4, y + 0.6, on);
+  var t = el('text', { x: x0 + (icon ? 12 : 0), y: y + 0.5 }, grp);
+  t.textContent = text;
+}
+function dimH(g, x1, x2, y, known) {
+  el('path', { d: 'M' + x1 + ',' + y + 'H' + x2 + 'M' + (x1 - 3.5) + ',' + (y + 3.5) + 'l7,-7M' + (x2 - 3.5) + ',' + (y + 3.5) + 'l7,-7', 'class': 'geo dim' + (known ? ' is-known' : '') }, g);
+}
+function dimV(g, x, y1, y2, known) {
+  el('path', { d: 'M' + x + ',' + y1 + 'V' + y2 + 'M' + (x - 3.5) + ',' + (y1 + 3.5) + 'l7,-7M' + (x - 3.5) + ',' + (y2 + 3.5) + 'l7,-7', 'class': 'geo dim' + (known ? ' is-known' : '') }, g);
+}
+function diagramRoot(sol) {
+  var g = $('#diagram'); g.innerHTML = '';
+  return el('g', { 'class': sol.ok && !cur().pending ? '' : 'faded' }, g);
+}
+function srcVals(sol) {
+  var s = sol.ok ? sol : lastGood[state.tab];
+  return s ? s.vals : null;
+}
+
+function drawArc(sol) {
+  var wrap = diagramRoot(sol), v = srcVals(sol);
+  var T = v ? v.T : 110;
+  var h = T * DEG / 2, sh = Math.sin(h), ch = Math.cos(h);
+  var xmax = T >= 180 ? 1 : sh, ymin = Math.min(0, ch), ymax = 1;
+  var k = Math.min(156 / (2 * xmax), 150 / (ymax - ymin));
+  var cx = 160, cy = 162 + (ymax + ymin) / 2 * k;
+  function P(x, y) { return [cx + x * k, cy - y * k]; }
+  var O = P(0, 0), E1 = P(-sh, ch), E2 = P(sh, ch), Tp = P(0, 1), M = P(0, ch);
+  var large = T > 180 ? 1 : 0;
+  el('circle', { cx: O[0], cy: O[1], r: k, 'class': 'geo ghost' }, wrap);
+  el('path', { d: 'M' + O + 'L' + E1 + 'M' + O + 'L' + E2, 'class': 'geo' + (K.R ? ' is-known' : '') }, wrap);
+  el('path', { d: 'M' + E1 + 'L' + E2, 'class': 'geo' + (K.C ? ' is-known' : '') }, wrap);
+  el('path', { d: 'M' + M + 'L' + Tp, 'class': 'geo aux' + (K.S ? ' is-known' : '') }, wrap);
+  var ra = Math.max(10, Math.min(24, 0.3 * k));
+  var A1 = [O[0] - sh * ra, O[1] - ch * ra], A2 = [O[0] + sh * ra, O[1] - ch * ra];
+  el('path', { d: 'M' + A1 + 'A' + ra + ' ' + ra + ' 0 ' + large + ' 1 ' + A2, 'class': 'geo' + (K.T ? ' is-known' : '') }, wrap);
+  el('path', { d: 'M' + E1 + 'A' + k + ' ' + k + ' 0 ' + large + ' 1 ' + E2, 'class': 'geo main' + (K.L ? ' is-known' : '') }, wrap);
+  [O, E1, E2].forEach(function (p) { el('circle', { cx: p[0], cy: p[1], r: 2.2, 'class': 'dot' }, wrap); });
+  tag(wrap, Tp[0], Tp[1] - 16, 'L');
+  var sLen = Math.abs(Tp[1] - M[1]);
+  tag(wrap, M[0] + 24, (M[1] + Tp[1]) / 2 + (sLen < 28 ? -16 : 0), 'S');
+  tag(wrap, cx - Math.max(sh * k * 0.5, 34), M[1] + 17, 'C');
+  tag(wrap, (O[0] + E2[0]) / 2 + ch * 18, (O[1] + E2[1]) / 2 + sh * 18, 'R');
+  var thetaY = O[1] - ra - 13, thetaX = O[0];
+  if (T > 180) thetaX = O[0] - 24;
+  else if (ch * k < ra + 24) thetaY = O[1] + 17;
+  tag(wrap, thetaX, thetaY, 'T');
+}
+
+function drawTri(sol) {
+  var wrap = diagramRoot(sol), v = srcVals(sol);
+  var a = v ? v.a : 4, b = v ? v.b : 12;
+  var s = Math.max(a, b), an = a / s, bn = b / s, hn = Math.sqrt(an * an + bn * bn);
+  var k = Math.min(150 / bn, 140 / an);
+  var w = bn * k, hgt = an * k;
+  var P1 = [160 - w / 2 - 6, 160 + hgt / 2], P2 = [160 + w / 2 - 6, 160 + hgt / 2], P3 = [160 + w / 2 - 6, 160 - hgt / 2];
+  el('path', { d: 'M' + P1 + 'L' + P2, 'class': 'geo main' + (K.b ? ' is-known' : '') }, wrap);
+  el('path', { d: 'M' + P2 + 'L' + P3, 'class': 'geo main' + (K.a ? ' is-known' : '') }, wrap);
+  el('path', { d: 'M' + P1 + 'L' + P3, 'class': 'geo main' + (K.c ? ' is-known' : '') }, wrap);
+  el('path', { d: 'M' + (P2[0] - 10) + ',' + P2[1] + 'L' + (P2[0] - 10) + ',' + (P2[1] - 10) + 'L' + P2[0] + ',' + (P2[1] - 10), 'class': 'geo' }, wrap);
+  var ra = 22, uh = [bn / hn, -an / hn], ub = [-bn / hn, an / hn];
+  el('path', { d: 'M' + (P1[0] + ra) + ',' + P1[1] + 'A' + ra + ' ' + ra + ' 0 0 0 ' + (P1[0] + ra * uh[0]) + ',' + (P1[1] + ra * uh[1]), 'class': 'geo' + (K.A ? ' is-known' : '') }, wrap);
+  el('path', { d: 'M' + P3[0] + ',' + (P3[1] + ra) + 'A' + ra + ' ' + ra + ' 0 0 1 ' + (P3[0] + ra * ub[0]) + ',' + (P3[1] + ra * ub[1]), 'class': 'geo' + (K.B ? ' is-known' : '') }, wrap);
+  [P1, P2, P3].forEach(function (p) { el('circle', { cx: p[0], cy: p[1], r: 2.4, 'class': 'dot' }, wrap); });
+  tag(wrap, (P1[0] + P2[0]) / 2, P1[1] + 18, 'b');
+  tag(wrap, P2[0] + 22, (P2[1] + P3[1]) / 2, 'a');
+  tag(wrap, (P1[0] + P3[0]) / 2 - an / hn * 20, (P1[1] + P3[1]) / 2 - bn / hn * 20, 'c');
+  var halfA = Math.atan2(an, bn) / 2, halfB = Math.atan2(bn, an) / 2;
+  if (halfA > 16 * DEG) tag(wrap, P1[0] + 42 * Math.cos(halfA), P1[1] - 42 * Math.sin(halfA), 'A');
+  else tag(wrap, P1[0] - 6, P1[1] - 18, 'A');
+  var bis = [ub[0], 1 + ub[1]], bl = Math.hypot(bis[0], bis[1]) || 1;
+  if (halfB > 16 * DEG) tag(wrap, P3[0] + 42 * bis[0] / bl, P3[1] + 42 * bis[1] / bl, 'B');
+  else tag(wrap, P3[0], P3[1] - 18, 'B');
+}
+
+function drawArray(sol) {
+  var wrap = diagramRoot(sol), v = srcVals(sol);
+  if (!v) v = { W: 6, N: 4, G: 22.5 * IN, S: 23.25 * IN, t1: 1.5 * IN, t: 0.75 * IN, tn: 1.5 * IN };
+  var x0 = 68, span = 184, k = span / v.W, yTop = 128, yBot = 194;
+  function panel(x, w, cls) { el('rect', { x: x0 + x * k, y: yTop, width: Math.max(cls === 'panel-end' ? 3 : 2, w * k), height: yBot - yTop, 'class': cls }, wrap); }
+  el('path', { d: 'M' + (x0 - 8) + ',' + yBot + 'H' + (x0 + span + 8), 'class': 'geo' }, wrap);
+  panel(0, v.t1, 'panel-end');
+  for (var i = 1; i <= v.N - 2 && i <= 400; i++) panel(v.t1 + i * v.G + (i - 1) * v.t, v.t, 'panel-mid');
+  panel(v.W - v.tn, v.tn, 'panel-end');
+  dimH(wrap, x0, x0 + span, 104, K.W);
+  tag(wrap, x0 + span / 2, 104, 'W');
+  var gx = x0 + (v.t1 + v.G / 2) * k;
+  if (v.G * k >= 40) tag(wrap, gx, (yTop + yBot) / 2, 'G');
+  else tag(wrap, Math.max(gx, x0 + 24), yTop - 12, 'G');
+  if (v.N >= 4) {
+    var c1 = v.t1 + v.G + v.t / 2, c2 = c1 + v.S;
+    dimH(wrap, x0 + c1 * k, x0 + c2 * k, yBot + 20, K.S);
+    tag(wrap, x0 + (c1 + c2) / 2 * k, yBot + 20, 'S');
+  } else {
+    tag(wrap, 160, yBot + 20, 'S');
+  }
+  tag(wrap, 160, 246, 'N', 'N=' + v.N);
+}
+
+function drawStair(sol) {
+  var wrap = diagramRoot(sol), v = srcVals(sol);
+  if (!v) v = { H: 10, N: 18, R: 10 / 18, T: 11 * IN };
+  var N = Math.min(v.N, 300), run = Math.max((N - 1) * v.T, v.T);
+  var k = Math.min(134 / run, 120 / v.H);
+  var w = (N - 1) * v.T * k, h = v.H * k;
+  var x0 = 160 - w / 2 + 6, y0 = 160 + h / 2 - 2;
+  var d = 'M' + (x0 - 16) + ',' + y0 + 'H' + x0, x = x0, y = y0;
+  for (var i = 0; i < N; i++) {
+    y -= v.R * k; d += 'V' + y;
+    if (i < N - 1) { x += v.T * k; d += 'H' + x; }
+  }
+  d += 'H' + (x + 16);
+  el('path', { d: d, 'class': 'geo main' }, wrap);
+  dimV(wrap, x0 - 30, y0, y0 - h, K.H);
+  tag(wrap, x0 - 30, y0 - h / 2, 'H');
+  tag(wrap, x + 2, y + Math.max(v.R * k, 6) + 16, 'R');
+  tag(wrap, x0 + Math.max(v.T * k / 2, 14), y0 - v.R * k - 15, 'T');
+  tag(wrap, 160, y0 + 24, 'N', 'N=' + v.N);
+}
+
+function drawPoly(sol) {
+  var wrap = diagramRoot(sol), v = srcVals(sol);
+  var n = v ? v.n : 8, nd = Math.min(n, 360);
+  var r = 84, cx = 160, cy = 170, k = Math.PI / nd;
+  var ri = r * Math.cos(k), pts = [];
+  for (var i = 0; i < nd; i++) {
+    var phi = Math.PI / 2 + k + i * 2 * k;
+    pts.push([cx + r * Math.cos(phi), cy + r * Math.sin(phi)]);
+  }
+  el('circle', { cx: cx, cy: cy, r: r, 'class': 'geo ghost' }, wrap);
+  el('circle', { cx: cx, cy: cy, r: ri, 'class': 'geo ghost' + (K.F ? ' is-known' : '') }, wrap);
+  el('path', { d: 'M' + pts.join('L') + 'Z', 'class': 'geo main' }, wrap);
+  el('path', { d: 'M' + pts[nd - 1] + 'L' + pts[0], 'class': 'geo main' + (K.s ? ' is-known' : '') }, wrap);
+  el('path', { d: 'M' + cx + ',' + cy + 'V' + (cy + ri), 'class': 'geo' + (K.a ? ' is-known' : '') }, wrap);
+  var best = 0, bd = 1e9;
+  pts.forEach(function (p, j) { var ang = Math.atan2(p[1] - cy, p[0] - cx); var dd = Math.abs(ang + 0.7); if (dd < bd) { bd = dd; best = j; } });
+  var vr = pts[best];
+  el('path', { d: 'M' + cx + ',' + cy + 'L' + vr, 'class': 'geo' + (K.R ? ' is-known' : '') }, wrap);
+  el('circle', { cx: cx, cy: cy, r: 2.4, 'class': 'dot' }, wrap);
+  tag(wrap, cx, cy + ri + 16, 's');
+  tag(wrap, cx - 18, cy + ri / 2, 'a');
+  var ux = (vr[0] - cx) / r, uy = (vr[1] - cy) / r;
+  tag(wrap, cx + ux * r * 0.55 - uy * 15, cy + uy * r * 0.55 + ux * 15, 'R');
+  tag(wrap, cx - ri, cy, 'F');
+  tag(wrap, cx, cy - r - 18, 'n', 'n=' + n);
+}
+
+function drawModule(sol) {
+  var wrap = diagramRoot(sol), v = srcVals(sol);
+  if (!v) v = { D: 9 + 5 * IN, M: 8 * IN, N: 14, Dm: 14 * 8 * IN };
+  var top = Math.max(v.D, v.Dm, v.M);
+  var k = 148 / top, x0 = 104, w = 96, yb = 232;
+  var ch = v.M * k, N = Math.min(v.N, 600);
+  if (ch >= 3) {
+    for (var j = 0; j < N; j++) {
+      var y = yb - (j + 1) * ch;
+      el('rect', { x: x0, y: y, width: w, height: ch, 'class': 'course' }, wrap);
+      if (ch >= 6) {
+        var joints = j % 2 ? [w / 2] : [w / 4, 3 * w / 4];
+        joints.forEach(function (jx) { el('path', { d: 'M' + (x0 + jx) + ',' + y + 'v' + ch, 'class': 'geo dim' }, wrap); });
+      }
+    }
+  } else if (N > 0) {
+    el('rect', { x: x0, y: yb - v.Dm * k, width: w, height: v.Dm * k, 'class': 'course-solid' }, wrap);
+  }
+  el('path', { d: 'M' + (x0 - 16) + ',' + yb + 'H' + (x0 + w + 16), 'class': 'geo' }, wrap);
+  var yD = yb - v.D * k;
+  el('path', { d: 'M' + (x0 - 12) + ',' + yD + 'H' + (x0 + w + 20), 'class': 'geo aux' + (K.D ? ' is-known' : '') }, wrap);
+  tag(wrap, x0 + w + 38, yD, 'D');
+  if (Math.abs(v.Dm - v.D) * k > 12) tag(wrap, x0 - 26, yb - v.Dm * k, 'Dm');
+  if (ch >= 22) tag(wrap, x0 + w / 2, yb - ch / 2, 'M');
+  else tag(wrap, x0 + w + 32, yb - 14, 'M');
+  tag(wrap, 160, yb + 18, 'N', 'N=' + v.N);
+}
+var DRAW = { arc: drawArc, tri: drawTri, array: drawArray, stair: drawStair, poly: drawPoly, module: drawModule };
+
+/* ---------- Schedule ---------- */
+function shortName(s) { return infoOf(s).name.replace(/\s*\(.*\)$/, ''); }
+function renderTitle(idx) {
+  var c = cur(), i = idx == null ? c.mode : idx, m = modes()[i];
+  var label, sub;
+  if (c.pending && idx == null) {
+    label = 'Known ' + infoOf(c.pending).letter + ' & ?';
+    sub = shortName(c.pending) + ' locked. Pick one more.';
+  } else {
+    label = (m.sub ? '' : 'Known ') + modeLabel(m);
+    var names = m.known.map(shortName);
+    sub = m.sub ? m.sub : names[0] + ' & ' + names[1].charAt(0).toLowerCase() + names[1].slice(1);
+  }
+  $('#vtName').textContent = label;
+  $('#vtMeta').textContent = sub + ' · Scale: NTS';
+  $('#vtNum').textContent = String(i + 1);
+  $('#vtSheet').textContent = SHEET[state.tab];
+}
+var LOCK_SVG_ON = '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><rect x="2.5" y="6" width="9" height="6.5" rx="1" fill="currentColor"/><path d="M4.5 6V4.2a2.5 2.5 0 0 1 5 0V6" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>';
+var LOCK_SVG_OFF = '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><rect x="2.5" y="6" width="9" height="6.5" rx="1" fill="currentColor"/><path d="M4.5 6V2.6a2.5 2.5 0 0 1 5 0V3.4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>';
+function rowSyms() {
+  var m = curMode(), table = FORMULAS[state.tab][m.key] || {};
+  return meta().syms.filter(function (s) { return m.known.indexOf(s) >= 0 || isFixed(s) || Object.prototype.hasOwnProperty.call(table, s); });
+}
+function lockCell(s) {
+  var m = curMode(), name = infoOf(s).name.toLowerCase();
+  if (isFixed(s)) return '<span class="lk fixed" title="Always an input">' + LOCK_SVG_ON + '</span>';
+  var L = lockSym(s);
+  if (m.known.indexOf(s) >= 0) {
+    var on = !!LS.logical[L];
+    return '<button type="button" class="lk" data-lock="' + L + '" aria-pressed="' + on + '" aria-label="' + (on ? 'Unlock ' : 'Lock ') + esc(name) + '">' + (on ? LOCK_SVG_ON : LOCK_SVG_OFF) + '</button>';
+  }
+  if (lockable().indexOf(s) >= 0 && !LS.logical[s]) {
+    return '<button type="button" class="lk" data-lock="' + s + '" aria-pressed="false" aria-label="Lock ' + esc(name) + '">' + LOCK_SVG_OFF + '</button>';
+  }
+  return '';
+}
+function rowHTML(s) {
+  var m = infoOf(s), names = effNames(), shown = !!LS.display[s];
+  var unit = m.kind === 'len' ? UNITS[state.unit].suffix : m.kind === 'ang' ? '°' : '';
+  var mode = m.kind === 'int' ? 'numeric' : (m.kind === 'len' && state.unit === 'ftin' ? 'text' : 'decimal');
+  var val = shown
+    ? '<div class="inwrap"><input class="pval" id="in-' + state.tab + '-' + s + '" data-in="' + s + '" type="text" inputmode="' + mode + '" autocomplete="off" spellcheck="false" aria-label="' + esc(m.name) + ' value" value="' + esc(rawFor(s)) + '"><span class="unit">' + esc(unit) + '</span></div>'
+    : '<span class="pout" data-out="' + s + '"></span><span class="psec" data-sec="' + s + '"></span>';
+  return '<div class="prow">' +
+    '<div class="c-lock">' + lockCell(s) + '</div>' +
+    '<div class="c-name"><input class="pname" id="nm-' + state.tab + '-' + s + '" data-name="' + s + '" type="text" autocomplete="off" spellcheck="false" aria-label="Parameter name for ' + esc(m.name) + '" placeholder="' + esc(DEFAULT_NAMES[state.tab][s]) + '" value="' + esc(state.names[state.tab][s]) + '"><span class="pdesc">' + esc(m.name) + '</span></div>' +
+    '<div class="c-val">' + val + '</div>' +
+    (shown ? '' : '<div class="pform" data-form="' + s + '"></div>') +
+    '</div>';
+}
+function derivedList() {
+  var imperial = UNITS[state.unit].imperial;
+  return DERIVED[state.tab].filter(function (d) { return !d.sys || (d.sys === 'imp') === imperial; });
+}
+function renderTable() {
+  computeLocks();
+  var syms = rowSyms();
+  var main = syms.filter(function (s) { return !isFixed(s); }), fx = syms.filter(isFixed);
+  var html = '<div class="pgroup">Dimensions</div>' + main.map(rowHTML).join('');
+  if (fx.length) html += '<div class="pgroup">' + (state.tab === 'array' ? 'Panel thickness' : 'Constants') + '</div>' + fx.map(rowHTML).join('');
+  var dl = derivedList();
+  if (dl.length) {
+    html += '<div class="pgroup">Derived</div>' + dl.map(function (d) {
+      return '<div class="prow"><div class="c-lock"></div><div class="c-name"><span class="dname">' + esc(d.name) + '</span></div>' +
+        '<div class="c-val"><span class="pout" data-dout="' + d.key + '"></span></div><div class="pform" data-dform="' + d.key + '"></div></div>';
+    }).join('');
+  }
+  $('#schedBody').innerHTML = html;
+  $('#schedTitle').textContent = '<' + meta().title + ' parameters>';
+
+  var pre = $('#presets'), presets = meta().presets;
+  if (presets) {
+    pre.hidden = false;
+    pre.innerHTML = '<span class="label">Presets</span>' + presets.map(function (p, i) { return '<button type="button" class="chip" data-preset="' + i + '">' + esc(p.label) + '</button>'; }).join('');
+  } else { pre.hidden = true; pre.innerHTML = ''; }
+  $$('#units button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-unit') === state.unit)); });
+  checkNames();
+}
+function fmtVal(kind, x) {
+  if (kind === 'len') return fmtLen(x, state.unit, false);
+  if (kind === 'slen') return (x > 1e-12 ? '+' : x < -1e-12 ? '−' : '') + fmtLen(Math.abs(x), state.unit, false);
+  if (kind === 'ang') return fmtAng(x, false);
+  if (kind === 'area') return fmtArea(x, state.unit);
+  if (kind === 'pitch') return trimNum(x, 3, true) + ' : 12';
+  if (kind === 'pct') return trimNum(x, 2, true) + '%';
+  if (kind === 'int') return String(Math.round(x));
+  return String(x);
+}
+function secondary(kind, x) {
+  if ((kind === 'len' || kind === 'slen') && state.unit === 'ftin') {
+    var exact = Math.abs(Math.round(x * 192) - x * 192) < 1e-6;
+    return (exact ? '' : '≈ ') + trimNum(x, 4, true) + ' ft';
+  }
+  if (kind === 'ang') return trimNum(x * DEG, 5) + ' rad';
+  return '';
+}
+function formulaHTML(tpl, names) {
+  return tpl.split(/(\{\w+\})/).map(function (part) {
+    var m = part.match(/^\{(\w+)\}$/);
+    if (!m) return esc(part);
+    return '<span class="' + (LS.display[m[1]] ? 'v-known' : 'v-solved') + '">' + esc(names[m[1]]) + '</span>';
+  }).join('');
+}
+function formulaText(tpl, names) { return tpl.replace(/\{(\w+)\}/g, function (_, s) { return names[s]; }); }
+function copyHTML(payload, label) {
+  var k = copyPayloads.push(payload) - 1;
+  return '<button type="button" class="copy" data-k="' + k + '">' + (label || 'Copy') + '</button>';
+}
+function patchTable(sol) {
+  copyPayloads = [];
+  var tab = state.tab, names = effNames(), pending = !!cur().pending;
+  var table = FORMULAS[tab][sol.key] || FORMULAS[tab][curMode().key];
+  var lines = [];
+  $$('#schedBody [data-out]').forEach(function (n) {
+    var s = n.getAttribute('data-out'), kind = infoOf(s).kind;
+    var v = sol.ok ? sol.vals[s] : null;
+    n.textContent = v == null ? '?' : fmtVal(kind, v);
+    n.classList.toggle('pending', v == null || pending);
+    $('#schedBody [data-sec="' + s + '"]').textContent = v == null ? '' : secondary(kind, v);
+  });
+  $$('#schedBody [data-form]').forEach(function (n) {
+    var s = n.getAttribute('data-form'), tpl = table ? table[s] : undefined;
+    if (pending) { n.innerHTML = '<span class="muted">Lock a second value to see this formula.</span>'; return; }
+    if (tpl === undefined) { n.innerHTML = '<span class="muted">Typed value</span>'; return; }
+    if (tpl === null) {
+      var typed = sol.ok ? fmtVal(infoOf(s).kind, sol.vals[s]) : '';
+      n.innerHTML = '<span class="muted">No closed-form formula. Type ' + esc(typed || 'the solved value') + ' as a fixed value.</span>' + (typed ? copyHTML(typed, 'Copy value') : '');
+      lines.push(names[s] + ' = ' + (typed || '(solve first)') + '   (typed value)');
+      return;
+    }
+    var text = formulaText(tpl, names);
+    n.innerHTML = '<span class="eq">=</span><code>' + formulaHTML(tpl, names) + '</code>' + copyHTML(text);
+    lines.push(names[s] + ' = ' + text);
+  });
+  derivedList().forEach(function (d) {
+    var out = $('#schedBody [data-dout="' + d.key + '"]'), form = $('#schedBody [data-dform="' + d.key + '"]');
+    if (!out) return;
+    var v = sol.ok ? sol.derived[d.key] : null;
+    out.textContent = v == null ? '?' : fmtVal(d.kind, v);
+    out.classList.toggle('pending', v == null || pending);
+    var text = formulaText(d.f, names);
+    form.innerHTML = '<span class="eq">=</span><code>' + formulaHTML(d.f, names) + '</code>' + copyHTML(text);
+    lines.push(d.name + ' = ' + text);
+  });
+  copyAllText = lines.join('\n');
+}
+function renderAlt(sol) {
+  var row = $('#altRow');
+  row.hidden = !(state.tab === 'arc' && sol.ok && sol.hasAlt && !cur().pending);
+  $$('#altRow button').forEach(function (b) { b.setAttribute('aria-pressed', String((b.getAttribute('data-alt') === '1') === !!sol.isAlt)); });
+}
+function renderChecks(sol) {
+  var t = $('#checks');
+  if (sol.ok && sol.checks && !cur().pending) {
+    t.hidden = false;
+    t.innerHTML = '<caption>Code check</caption><thead><tr><th>Check</th><th>Limit</th><th>Result</th></tr></thead><tbody>' +
+      sol.checks.map(function (c) { return '<tr><td>' + esc(c.label) + '</td><td>' + esc(c.detail) + '</td><td><span class="res ' + (c.ok ? 'ok' : 'no') + '">' + (c.ok ? 'OK' : 'NO') + '</span></td></tr>'; }).join('') +
+      '</tbody>';
+  } else { t.hidden = true; t.innerHTML = ''; }
+}
+function checkNames() {
+  var names = effNames(), bad = [], seen = {}, dup = [];
+  Object.keys(names).forEach(function (s) {
+    var n = names[s];
+    if (/[+\-*\/^()=<>\[\]{}|;:?`~\\,"]/.test(n)) bad.push(n);
+    if (seen[n]) dup.push(n); seen[n] = true;
+  });
+  var parts = [];
+  if (bad.length) parts.push('Revit formulas will misread ' + bad.map(function (n) { return '"' + n + '"'; }).join(', ') + '. Avoid + - * / ^ ( ) = < > [ ] in parameter names.');
+  if (dup.length) parts.push('Two parameters share the name "' + dup[0] + '".');
+  return parts.join(' ');
+}
+function parseProblem() {
+  var c = cur();
+  var bad = Object.keys(LS.display).filter(function (s) { return (c.raw[s] || '').trim() && c.vals[s] == null; })[0];
+  if (!bad) return null;
+  var kind = infoOf(bad).kind;
+  var eg = kind === 'ang' ? '90 or 22.5' : kind === 'int' ? 'a whole number like 4' : (state.unit === 'ftin' ? '10\' 6 1/2" or 10.5' : '12.5');
+  return 'Can’t read "' + c.raw[bad].trim() + '" for ' + infoOf(bad).letter + '. Try ' + eg + '.';
+}
+
+var NOTES = {
+  arc: [
+    '<b>S</b> is the short sagitta: the height from the chord to the arc. The long sagitta, 2R - S, runs through the center to the far side.',
+    '<b>θ</b> is the included angle at the center. It can go past 180°, and the formulas still hold.',
+    'Revit angles carry units, so arc length uses <code>θ * pi() / 180°</code> to turn the angle into a plain number before multiplying by R.',
+    'C & L and S & L have no closed-form formula. The page solves R numerically; type that R in as a fixed value.'
+  ],
+  tri: [
+    '<b>a</b> is the rise, <b>b</b> the run, <b>c</b> the hypotenuse. Angle A sits between b and c; angle B sits between a and c.',
+    'Revit is case-sensitive, so a and A are two different parameters.',
+    'Two angles set the shape but not the size, so A & B can’t be locked together. Locking B while A is locked keeps your side instead.',
+    'For a roof pitch like 4:12, lock a = 4 and b = 12, or type the angle as <code>atan(4 / 12)</code>.'
+  ],
+  array: [
+    '<b>N</b> counts every panel, first and last included. The middle panels number N - 2.',
+    '<b>S</b> is center to center of typical panels, which is always G + t.',
+    'Locking G or S together with W treats it as a maximum. N rounds up so the real gap never passes your limit.',
+    'Set t1 and tn equal to t for identical panels: shelves, mullions, balusters, fins.',
+    'Revit arrays need at least 2 members. With fewer than 4 panels, drive the middle array with the “held at 2” formula and switch it off with a Yes/No like <code>N > 3</code>.',
+    'The <code>- 0.0001</code> stops an exact fit from adding a panel. In floating point, 9\' 4" / 8" is 14.000000000000002.'
+  ],
+  stair: [
+    '<b>N</b> counts risers. With the upper floor as the last step, treads = N - 1.',
+    'Locking R together with H treats it as the tallest riser allowed, and the riser count rounds up.',
+    'The <code>- 0.0001</code> keeps an exact fit, like 105" at 7", from adding a riser.',
+    'The code check uses the common IBC and IRC numbers. Confirm against your adopted code and local amendments.'
+  ],
+  poly: [
+    '<b>R</b> runs from the center to a corner. <b>a</b>, the apothem, runs from the center to the middle of a side.',
+    'Across flats, F = 2a, is how octagonal columns and bolt heads are usually dimensioned. Across corners is 2R.',
+    '<code>180° / n</code> works in Revit because n is a plain integer, so the result stays an angle.'
+  ],
+  module: [
+    'Turn the ring to choose round down, nearest or round up. Lock N and M instead to build up from a count.',
+    'Brick runs 3 courses to 8", so one course is 2 2/3". The preset fills that in.',
+    'The <code>± 0.0001</code> guards exact multiples. Without it, 9\' 4" / 8" is 14.000000000000002 and roundup would give 15 courses.'
+  ]
+};
+function renderNotes() { $('#notes').innerHTML = NOTES[state.tab].map(function (t) { return '<li><span>' + t + '</span></li>'; }).join(''); }
+
+var PATTERNS = [
+  { t: 'Show only when there’s room (Yes/No)', f: 'Width > 3\'', n: 'A Yes/No formula is just the test. No if() needed.' },
+  { t: 'At least a value (no >= in Revit)', f: 'not(Width < 3\')', n: 'Reads as Width ≥ 3\'. Use not(Width > 3\') for ≤.' },
+  { t: 'Between two values, inclusive (Yes/No)', f: 'and(not(Height < 2\' 6"), not(Height > 3\' 6"))', n: '' },
+  { t: 'Clamp between a min and max', f: 'if(Width < Min Width, Min Width, if(Width > Max Width, Max Width, Width))', n: '' },
+  { t: 'Keep an array at 2 or more', f: 'if(Count < 2, 2, Count)', n: 'Pair it with a Yes/No that hides the array when Count < 2.' },
+  { t: 'Snap to a module', f: 'round(Length / Module) * Module', n: 'Swap round for rounddown or roundup to set the direction.' },
+  { t: 'How many fit', f: 'rounddown(Length / Spacing + 0.0001)', n: 'Use in an Integer parameter. The 0.0001 keeps exact multiples from rounding the wrong way.' },
+  { t: 'Equal spacing that never exceeds a max', f: 'Length / roundup(Length / Max Spacing - 0.0001)', n: 'Same guard, the other direction.' },
+  { t: 'Center an item in a space', f: '(Width - Item Width) / 2', n: '' },
+  { t: 'Pick a size from steps', f: 'if(Width < 2\' 6", 2\', if(Width < 4\', 3\', 4\'))', n: 'Nested if() reads left to right; the first match wins.' },
+  { t: 'Text from a condition', f: 'if(Width > 3\', "Pair", "Single")', n: 'Goes in a Text parameter.' },
+  { t: 'Even count check (Yes/No)', f: 'Count / 2 = rounddown(Count / 2)', n: '' },
+  { t: 'Avoid dividing by zero', f: 'if(Count > 1, Length / (Count - 1), 0\')', n: '' },
+  { t: 'Either condition (Yes/No)', f: 'or(Is Corner, Width > 4\')', n: '' },
+  { t: 'Flip a Yes/No', f: 'not(Is Left)', n: 'Handy for mirrored hardware or a left/right pair of visibility switches.' },
+  { t: 'Larger of two values', f: 'if(A > B, A, B)', n: 'Revit has no max() function.' }
+];
+function renderPatterns() {
+  $('#patterns').innerHTML = PATTERNS.map(function (p, i) {
+    return '<li><span class="ptitle">' + esc(p.t) + '</span>' +
+      '<div class="pform"><code>' + esc(p.f) + '</code><button type="button" class="copy" data-p="' + i + '">Copy</button></div>' +
+      (p.n ? '<span class="pnote">' + esc(p.n) + '</span>' : '') + '</li>';
+  }).join('');
+}
+
+function update() {
+  computeLocks();
+  var c = cur();
+  var parseErr = parseProblem();
+  var sol = currentSolution();
+  if (parseErr) sol = { ok: false, err: parseErr, key: curMode().key };
+  if (sol.ok) lastGood[state.tab] = sol;
+  renderTitle();
+  ringActive();
+  renderAlt(sol);
+  var msgText = !sol.ok ? sol.err : checkNames();
+  $('#msg').hidden = !msgText || !!c.pending;
+  $('#msgText').textContent = msgText || '';
+  var pn = $('#pendingNote');
+  pn.hidden = !c.pending;
+  if (c.pending) pn.innerHTML = LOCK_SVG_OFF + '<span><b>' + esc(infoOf(c.pending).letter) + '</b> is locked. Click one more tag or lock to solve.</span>';
+  DRAW[state.tab](sol);
+  patchTable(sol);
+  renderChecks(sol);
+  persist();
+}
+function renderTabs() {
+  $('#tabs').innerHTML = TAB_ORDER.map(function (t) {
+    return '<button role="tab" type="button" data-tab="' + t + '" aria-selected="' + (t === state.tab) + '"><span class="sn">' + SHEET[t] + '</span><span class="st">' + esc(META[t].title) + '</span></button>';
+  }).join('');
+}
+function renderTab() {
+  $$('#tabs [role="tab"]').forEach(function (b) {
+    var on = b.getAttribute('data-tab') === state.tab;
+    b.setAttribute('aria-selected', String(on));
+    if (on && b.scrollIntoView) { try { b.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {} }
+  });
+  var c = cur();
+  if (!c.order || c.order.length !== 2) c.order = modeLock(curMode());
+  buildRing();
+  dialRot = -c.mode * 360 / modes().length;
+  applyRot(false);
+  renderTable();
+  renderNotes();
+  update();
+}
+function tabFromHash() {
+  var h = (location.hash || '').slice(1);
+  for (var i = 0; i < TAB_ORDER.length; i++) if (META[TAB_ORDER[i]].hash === h) return TAB_ORDER[i];
+  return null;
+}
+
+/* ---------- Events ---------- */
+$('#tabs').addEventListener('click', function (e) {
+  var b = e.target.closest && e.target.closest('[data-tab]');
+  if (!b) return;
+  var t = b.getAttribute('data-tab');
+  if (t === state.tab) return;
+  state.tab = t;
+  try { history.replaceState(null, '', '#' + META[t].hash); } catch (err) {}
+  renderTab();
+});
+window.addEventListener('hashchange', function () {
+  var t = tabFromHash();
+  if (t && t !== state.tab) { state.tab = t; renderTab(); }
+});
+$$('#units button').forEach(function (b) {
+  b.addEventListener('click', function () {
+    var u = b.getAttribute('data-unit');
+    if (u === state.unit) return;
+    state.unit = u;
+    TAB_ORDER.forEach(function (t) {
+      var c = state[t];
+      Object.keys(c.vals).forEach(function (s) {
+        if (c.vals[s] != null && c.vals[s] > 0 && META[t].info[s] && META[t].info[s].kind === 'len') c.raw[s] = fmtInput(t, s, c.vals[s]);
+      });
+    });
+    renderTable();
+    update();
+  });
+});
+var body = $('#schedBody');
+body.addEventListener('input', function (e) {
+  var t = e.target, c = cur();
+  if (t.hasAttribute('data-in')) {
+    var s = t.getAttribute('data-in');
+    c.raw[s] = t.value;
+    c.vals[s] = parseFor(s, t.value);
+    update();
+  } else if (t.hasAttribute('data-name')) {
+    state.names[state.tab][t.getAttribute('data-name')] = t.value;
+    update();
+  }
+});
+body.addEventListener('focusout', function (e) {
+  var t = e.target, c = cur();
+  if (!t.hasAttribute || !t.hasAttribute('data-in')) return;
+  var s = t.getAttribute('data-in');
+  if (c.vals[s] != null && c.vals[s] > 0) { c.raw[s] = fmtInput(state.tab, s, c.vals[s]); t.value = c.raw[s]; }
+});
+body.addEventListener('click', function (e) {
+  var b = e.target.closest && e.target.closest('[data-lock]');
+  if (b) clickLock(b.getAttribute('data-lock'));
+});
+$('#presets').addEventListener('click', function (e) {
+  var b = e.target.closest && e.target.closest('[data-preset]');
+  if (!b) return;
+  var p = meta().presets[+b.getAttribute('data-preset')], c = cur();
+  Object.keys(p.set).forEach(function (s) { c.vals[s] = p.set[s]; c.raw[s] = fmtInput(state.tab, s, p.set[s]); });
+  renderTable();
+  update();
+});
+$$('#altRow button').forEach(function (b) {
+  b.addEventListener('click', function () { state.arc.alt = b.getAttribute('data-alt') === '1'; update(); });
+});
+
+function copyText(text, btn) {
+  var orig = btn.getAttribute('data-label') || btn.textContent;
+  btn.setAttribute('data-label', orig);
+  function done(ok) {
+    btn.textContent = ok ? 'Copied' : 'Select it';
+    btn.classList.toggle('done', ok);
+    if (!ok) {
+      var code = btn.parentNode && btn.parentNode.querySelector('code');
+      if (code) { try { var r = document.createRange(); r.selectNodeContents(code); var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); } catch (e) {} }
+    }
+    setTimeout(function () { btn.textContent = orig; btn.classList.remove('done'); }, 1400);
+  }
+  function fallback() {
+    var ok = false;
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select(); ok = document.execCommand('copy'); ta.remove();
+    } catch (e) {}
+    done(ok);
+  }
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { done(true); }, fallback);
+    else fallback();
+  } catch (e) { fallback(); }
+}
+document.addEventListener('click', function (e) {
+  var b = e.target.closest && e.target.closest('button.copy');
+  if (!b) return;
+  var t = b.hasAttribute('data-p') ? PATTERNS[+b.getAttribute('data-p')].f : copyPayloads[+b.getAttribute('data-k')];
+  if (t) copyText(t, b);
+});
+$('#copyAll').addEventListener('click', function (e) { copyText(copyAllText, e.currentTarget); });
+
+/* ---------- Boot ---------- */
+function start(data) {
+  restore();
+  if (data && data.state) {
+    try {
+      var d = data.state;
+      if (META[d.tab]) state.tab = d.tab;
+      if (UNITS[d.unit]) state.unit = d.unit;
+      TAB_ORDER.forEach(function (t) {
+        if (d[t] && typeof d[t].mode === 'number' && d[t].mode < META[t].modes.length && d[t].vals) { state[t] = d[t]; state[t].pending = null; }
+      });
+      if (d.names) mergeNames(d.names);
+    } catch (e) {}
+  }
+  var ht = tabFromHash();
+  if (ht) state.tab = ht;
+  renderTabs();
+  renderPatterns();
+  renderTab();
+}
+var hot = window.claude && window.claude.hot;
+try { if (hot && hot.snapshot) hot.snapshot(function () { return { state: JSON.parse(JSON.stringify(state)) }; }); } catch (e) {}
+if (hot && hot.ready) hot.ready(start); else start((hot && hot.data) || {});
+
+window.__geometrySolver = { solve: solve, FORMULAS: FORMULAS, META: META, DERIVED: DERIVED, parseLen: parseLen, fmtLen: fmtLen, clickLock: clickLock, state: state };
+})();
+</script>
+</body>
+</html>
