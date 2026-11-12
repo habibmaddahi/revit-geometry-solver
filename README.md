@@ -1,6 +1,6 @@
-# Revit Geometry Solver
+# BIM Geometry Solver
 
-Lock two values you know and get Revit family formulas for everything else.
+Lock two values you know and get BIM family formulas for everything else.
 
 **Live site:** https://habibmaddahi.github.io/revit-geometry-solver/
 
@@ -13,7 +13,7 @@ Sheets:
 - **A-105 Polygon:** side, radius to corners, apothem, across flats
 - **A-106 Snap to module:** round a dimension down, to nearest or up to a module
 
-Every formula uses Revit syntax and units, and you can rename the parameters to match your family.
+Every formula uses BIM formula syntax and units, and you can rename the parameters to match your family.
 
 ## Updating the site
 

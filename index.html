@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Revit Geometry Solver</title>
-<meta name="description" content="Lock two values you know and get Revit family formulas for the rest: arcs, right triangles, arrays, stairs, polygons and modules.">
+<title>BIM Geometry Solver</title>
+<meta name="description" content="Lock two values you know and get BIM family formulas for the rest: arcs, right triangles, arrays, stairs, polygons and modules.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23f5f5f1' stroke='%23121412' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23121412' stroke-width='1.5'/%3E%3Cpath d='M13 2h6l-3 4z' fill='%232342c8'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -125,7 +125,7 @@ h1 { font: 800 clamp(24px, 4.6vw, 38px)/0.95 var(--font-body); font-stretch: 70%
 .tag.click:hover .tag-box { stroke-width: 2; }
 .faded { opacity: 0.35; }
 
-/* Revit-style view title */
+/* BIM-style view title */
 .vt { display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%; max-width: 430px; }
 .vt svg.bubble { display: block; }
 .bubble circle, .bubble path { fill: none; stroke: var(--ink); stroke-width: 1.2; }
@@ -244,8 +244,8 @@ footer div { padding: 10px 14px; }
   <header class="tb">
     <div>
       <span class="label">Project</span>
-      <h1>Revit Geometry Solver</h1>
-      <p class="sub">Lock two values you know. Every other value gets a Revit formula.</p>
+      <h1>BIM Geometry Solver</h1>
+      <p class="sub">Lock two values you know. Every other value gets a BIM formula.</p>
     </div>
     <div class="units-cell">
       <span class="label">Units</span>
@@ -355,7 +355,7 @@ footer div { padding: 10px 14px; }
   </section>
 
   <footer>
-    <div>Values here are for checking your inputs. Revit evaluates the formulas itself, in your family's units.</div>
+    <div>Values here are for checking your inputs. Your BIM software evaluates the formulas itself, in your family's units.</div>
     <div>Scale: NTS</div>
   </footer>
 </div>
@@ -578,7 +578,7 @@ var DERIVED = {
   module: []
 };
 
-/* Same guard as the Revit formulas: exact multiples (9' 4" / 8" = 14.000000000000002) must not tip over. */
+/* Same guard as the BIM formulas: exact multiples (9' 4" / 8" = 14.000000000000002) must not tip over. */
 function ceilTol(x) { return Math.ceil(x - 1e-4); }
 function floorTol(x) { return Math.floor(x + 1e-4); }
 function roundTol(x) { return Math.round(x + 1e-9); }
@@ -890,7 +890,7 @@ var DEFAULT_TABS = {
   module: { mode: 0, vals: { D: 9 + 5 * IN, M: 8 * IN }, raw: {} }
 };
 var SHEET = { arc: 'A-101', tri: 'A-102', array: 'A-103', stair: 'A-104', poly: 'A-105', module: 'A-106' };
-var STORE_KEY = 'revit-geometry-solver.v2';
+var STORE_KEY = 'bim-geometry-solver.v2';
 var state = { tab: 'arc', unit: 'ftin', names: JSON.parse(JSON.stringify(DEFAULT_NAMES)) };
 TAB_ORDER.forEach(function (t) { state[t] = JSON.parse(JSON.stringify(DEFAULT_TABS[t])); state[t].pending = null; });
 var lastGood = {};
@@ -1508,7 +1508,7 @@ function checkNames() {
     if (seen[n]) dup.push(n); seen[n] = true;
   });
   var parts = [];
-  if (bad.length) parts.push('Revit formulas will misread ' + bad.map(function (n) { return '"' + n + '"'; }).join(', ') + '. Avoid + - * / ^ ( ) = < > [ ] in parameter names.');
+  if (bad.length) parts.push('BIM formulas will misread ' + bad.map(function (n) { return '"' + n + '"'; }).join(', ') + '. Avoid + - * / ^ ( ) = < > [ ] in parameter names.');
   if (dup.length) parts.push('Two parameters share the name "' + dup[0] + '".');
   return parts.join(' ');
 }
@@ -1525,12 +1525,12 @@ var NOTES = {
   arc: [
     '<b>S</b> is the short sagitta: the height from the chord to the arc. The long sagitta, 2R - S, runs through the center to the far side.',
     '<b>θ</b> is the included angle at the center. It can go past 180°, and the formulas still hold.',
-    'Revit angles carry units, so arc length uses <code>θ * pi() / 180°</code> to turn the angle into a plain number before multiplying by R.',
+    'Angles carry units in BIM formulas, so arc length uses <code>θ * pi() / 180°</code> to turn the angle into a plain number before multiplying by R.',
     'C & L and S & L have no closed-form formula. The page solves R numerically; type that R in as a fixed value.'
   ],
   tri: [
     '<b>a</b> is the rise, <b>b</b> the run, <b>c</b> the hypotenuse. Angle A sits between b and c; angle B sits between a and c.',
-    'Revit is case-sensitive, so a and A are two different parameters.',
+    'BIM formulas are case-sensitive, so a and A are two different parameters.',
     'Two angles set the shape but not the size, so A & B can’t be locked together. Locking B while A is locked keeps your side instead.',
     'For a roof pitch like 4:12, lock a = 4 and b = 12, or type the angle as <code>atan(4 / 12)</code>.'
   ],
@@ -1539,7 +1539,7 @@ var NOTES = {
     '<b>S</b> is center to center of typical panels, which is always G + t.',
     'Locking G or S together with W treats it as a maximum. N rounds up so the real gap never passes your limit.',
     'Set t1 and tn equal to t for identical panels: shelves, mullions, balusters, fins.',
-    'Revit arrays need at least 2 members. With fewer than 4 panels, drive the middle array with the “held at 2” formula and switch it off with a Yes/No like <code>N > 3</code>.',
+    'Arrays need at least 2 members. With fewer than 4 panels, drive the middle array with the “held at 2” formula and switch it off with a Yes/No like <code>N > 3</code>.',
     'The <code>- 0.0001</code> stops an exact fit from adding a panel. In floating point, 9\' 4" / 8" is 14.000000000000002.'
   ],
   stair: [
@@ -1551,7 +1551,7 @@ var NOTES = {
   poly: [
     '<b>R</b> runs from the center to a corner. <b>a</b>, the apothem, runs from the center to the middle of a side.',
     'Across flats, F = 2a, is how octagonal columns and bolt heads are usually dimensioned. Across corners is 2R.',
-    '<code>180° / n</code> works in Revit because n is a plain integer, so the result stays an angle.'
+    '<code>180° / n</code> works in BIM formulas because n is a plain integer, so the result stays an angle.'
   ],
   module: [
     'Turn the ring to choose round down, nearest or round up. Lock N and M instead to build up from a count.',
@@ -1563,7 +1563,7 @@ function renderNotes() { $('#notes').innerHTML = NOTES[state.tab].map(function (
 
 var PATTERNS = [
   { t: 'Show only when there’s room (Yes/No)', f: 'Width > 3\'', n: 'A Yes/No formula is just the test. No if() needed.' },
-  { t: 'At least a value (no >= in Revit)', f: 'not(Width < 3\')', n: 'Reads as Width ≥ 3\'. Use not(Width > 3\') for ≤.' },
+  { t: 'At least a value (no >= in BIM formulas)', f: 'not(Width < 3\')', n: 'Reads as Width ≥ 3\'. Use not(Width > 3\') for ≤.' },
   { t: 'Between two values, inclusive (Yes/No)', f: 'and(not(Height < 2\' 6"), not(Height > 3\' 6"))', n: '' },
   { t: 'Clamp between a min and max', f: 'if(Width < Min Width, Min Width, if(Width > Max Width, Max Width, Width))', n: '' },
   { t: 'Keep an array at 2 or more', f: 'if(Count < 2, 2, Count)', n: 'Pair it with a Yes/No that hides the array when Count < 2.' },
@@ -1577,7 +1577,7 @@ var PATTERNS = [
   { t: 'Avoid dividing by zero', f: 'if(Count > 1, Length / (Count - 1), 0\')', n: '' },
   { t: 'Either condition (Yes/No)', f: 'or(Is Corner, Width > 4\')', n: '' },
   { t: 'Flip a Yes/No', f: 'not(Is Left)', n: 'Handy for mirrored hardware or a left/right pair of visibility switches.' },
-  { t: 'Larger of two values', f: 'if(A > B, A, B)', n: 'Revit has no max() function.' }
+  { t: 'Larger of two values', f: 'if(A > B, A, B)', n: 'BIM formulas have no max() function.' }
 ];
 function renderPatterns() {
   $('#patterns').innerHTML = PATTERNS.map(function (p, i) {
